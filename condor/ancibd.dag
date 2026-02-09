@@ -1,0 +1,17 @@
+# Minimal DAG: per-chrom jobs -> summary job
+# Edit CH list and CH_RANGE as needed.
+
+# Variables:
+#  ROOT      : absolute path to repo root on shared FS
+#  RUNS_ROOT : absolute runs root (matches config/local.env)
+#  RUN_ID    : unique id (created before submission)
+
+# Chromosome jobs (example: only chr20). Expand to 1..22 later.
+JOB CH20 condor/ancibd_ch.sub
+VARS CH20 ROOT="$(ROOT)" RUNS_ROOT="$(RUNS_ROOT)" RUN_ID="$(RUN_ID)" CH="20"
+
+# Summary (chr20 only)
+JOB SUM condor/ancibd_summary.sub
+VARS SUM ROOT="$(ROOT)" RUNS_ROOT="$(RUNS_ROOT)" RUN_ID="$(RUN_ID)" CH_RANGE="20-20"
+
+PARENT CH20 CHILD SUM
