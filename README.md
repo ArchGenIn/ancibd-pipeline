@@ -14,17 +14,27 @@ Reproducible ancIBD workflow harness using Apptainer + HTCondor:
 
 ## Quickstart (local)
 1) Copy config:
+```bash
    cp config/example.env config/local.env
    # edit config/local.env
+```
 
 2) Build container:
+```bash
    ./containers/build.sh
+```
 
 3) Create a new run id:
+```bash
    ./scripts/new_run.sh demo
+```
 
 4) Run one chromosome:
+```bash
    RUN_ID=... ./scripts/run_chrom.sh 20
+```
 
 5) Summary (for chr20 only):
+```bash
    RUN_ID=... ./scripts/run_summary.sh 20-20
+```
