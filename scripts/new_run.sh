@@ -9,6 +9,6 @@ TS="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_ID="${TS}_${TAG}"
 
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
-mkdir -p "$RUN_DIR"/{work,out,logs}
+mkdir -p "$RUN_DIR"/{work,out,logs,meta,logs/condor}
 
 echo "$RUN_ID"

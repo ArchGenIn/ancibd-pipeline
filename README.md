@@ -1,8 +1,11 @@
 # ancibd-pipeline
 
-Reproducible ancIBD workflow harness using Apptainer + HTCondor:
+Reproducible ancIBD pipeline using Apptainer + HTCondor:
 - safe run directories (no overwrites by construction)
 - wrapper scripts for per-chromosome runs + summary
+- scalable batch-pair mode via `--iid/--pair` (local driver + HTCondor submit)
+- merge step to assemble per-batch outputs into `out/merged/`
+- result-comparison helper for regression checks (baseline vs batch runs)
 - container recipe + provenance capture
 - HTCondor submit files + DAGMan skeleton
 
@@ -208,6 +211,7 @@ export RUN_ID
 ROOT="$(pwd)"
 source config/local.env
 
+# Optional
 ./scripts/make_iid_list.sh
 
 ./scripts/make_batchpairs.sh
@@ -218,6 +222,26 @@ condor_submit \
   -append "RUN_ID=$RUN_ID" \
   -append "CH_RANGE=${CH_RANGE:-20-20}" \
   condor/ancibd_batchpair.sub
+
+# After all batchpair jobs finished, merge per-batch outputs into out/merged/:
+condor_submit \
+  -append "ROOT=$ROOT" \
+  -append "RUNS_ROOT=$RUNS_ROOT" \
+  -append "RUN_ID=$RUN_ID" \
+  condor/ancibd_merge.sub
+
+# Merged outputs will be written to:
+#   runs/<RUN_ID>/out/merged/{ch_all.tsv,ibd_ind.tsv}
+```
+
+## Result comparison
+
+To compare two ancIBD summary output folders (order-insensitive):
+
+```bash
+./scripts/compare_outputs.sh \
+  "$RUNS_ROOT/<RUN_ID_A>/out" \
+  "$RUNS_ROOT/<RUN_ID_B>/out/merged"
 ```
 
 ### Determinism note (AF_ALL vs RAF)

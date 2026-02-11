@@ -1,0 +1,21 @@
+# Merge per-batch outputs into out/merged/{ch_all.tsv,ibd_ind.tsv}.
+# Submit-time macros expected:
+#   -append "ROOT=/abs/path/to/repo" \
+#   -append "RUNS_ROOT=/abs/path/to/repo/runs" \
+#   -append "RUN_ID=runXYZ" \
+
+universe   = vanilla
+executable = /bin/bash
+arguments  = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/merge_batch_outputs.sh'"
+
+request_cpus   = 1
+request_memory = 2GB
+request_disk   = 1GB
+
+log    = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/merge.log
+output = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/merge.out
+error  = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/merge.err
+
+notification = never
+
+queue
