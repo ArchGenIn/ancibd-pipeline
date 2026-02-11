@@ -22,12 +22,14 @@ cp config/example.env config/local.env
 
 `config/local.env` is intentionally untracked (machine-specific paths); `config/example.env` is the committed template.
 
-2) Build image:
+2) Build image (once per machine):
 ```bash
 ./containers/build.sh
 ```
 
 ## Quickstart (local)
+
+Assumes you completed **Prep**.
 
 1) Create a new run directory and export the run id:
 ```bash
@@ -53,6 +55,8 @@ Expected outputs:
 
 ### Run one chromosome job and the summary job via `condor_submit`
 
+Assumes you completed **Prep**.
+
 1) Sanity: Condor is alive and you have local slots:
 ```bash
 condor_status | head
@@ -69,9 +73,13 @@ export RUN_ID
 ROOT="$(pwd)"
 # If your config/local.env uses $(pwd), source it from repo root:
 source config/local.env
-mkdir -p "$RUNS_ROOT/$RUN_ID/logs"
 
-condor_submit -append "ROOT=$ROOT" -append "RUNS_ROOT=$RUNS_ROOT" -append "RUN_ID=$RUN_ID" -append "CH=20" condor/ancibd_ch.sub
+condor_submit \
+  -append "ROOT=$ROOT" \
+  -append "RUNS_ROOT=$RUNS_ROOT" \
+  -append "RUN_ID=$RUN_ID" \
+  -append "CH=20" \
+  condor/ancibd_ch.sub
 ```
 
 4) Watch it:
@@ -92,7 +100,12 @@ ls -lah "$RUNS_ROOT/$RUN_ID/work" "$RUNS_ROOT/$RUN_ID/logs"
 
 6) Once **chr20** finished and produced the `...ch20.tsv`:
 ```bash
-condor_submit -append "ROOT=$(pwd)" -append "RUNS_ROOT=$RUNS_ROOT" -append "RUN_ID=$RUN_ID" -append "CH_RANGE=20-20" condor/ancibd_summary.sub
+condor_submit \
+  -append "ROOT=$ROOT" \
+  -append "RUNS_ROOT=$RUNS_ROOT" \
+  -append "RUN_ID=$RUN_ID" \
+  -append "CH_RANGE=20-20" \
+  condor/ancibd_summary.sub
 ```
 
 7) Then check:
@@ -104,6 +117,9 @@ ls -lah "$RUNS_ROOT/$RUN_ID/out"
 Note: HTCondor `arguments = ...` is not bash parsing. Prefer the “new syntax” (outer double quotes, inner single quotes), otherwise any double quotes inside `arguments` must be escaped.
 
 ### Try the DAG (chrom job(s) → summary)
+
+Assumes you completed **Prep**.
+
 DAGMan writes a few extra files (`*.dagman.log`, `*.nodes.log`, etc.). To keep them out of your repo root, run the DAG from a per-run folder.
 
 1) Create a per-run DAG directory and make a run-specific DAG file:
@@ -165,6 +181,8 @@ Each batch-pair writes to its own output folder; a single merge step concatenate
 
 ### Batch quickstart (local)
 
+Assumes you completed **Prep**.
+
 ```bash
 RUN_ID="$(./scripts/new_run.sh demo_batches)"
 export RUN_ID
@@ -181,15 +199,25 @@ export RUN_ID
 
 ### HTCondor batch quickstart (local)
 
+Assumes you completed **Prep**.
+
 ```bash
 RUN_ID="$(./scripts/new_run.sh demo_batch_condor)"
 export RUN_ID
+
+ROOT="$(pwd)"
+source config/local.env
 
 ./scripts/make_iid_list.sh
 
 ./scripts/make_batchpairs.sh
 
-condor_submit condor/ancibd_batchpair.sub -append "ROOT=$(pwd)" -append "RUN_ID=$RUN_ID" -append "CH_RANGE=${CH_RANGE:-20-20}"
+condor_submit \
+  -append "ROOT=$ROOT" \
+  -append "RUNS_ROOT=$RUNS_ROOT" \
+  -append "RUN_ID=$RUN_ID" \
+  -append "CH_RANGE=${CH_RANGE:-20-20}" \
+  condor/ancibd_batchpair.sub
 ```
 
 ### Determinism note (AF_ALL vs RAF)

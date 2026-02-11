@@ -3,7 +3,7 @@
 #   - generates an IID+pair plan for that batchpair
 #   - runs ancIBD across chromosomes in CH_RANGE
 #   - runs ancIBD-summary
-#   - writes runs/<RUN_ID>/out/<batch_tag>/DONE
+#   - writes <RUNS_ROOT>/<RUN_ID>/out/<batch_tag>/DONE
 
 universe              = vanilla
 getenv                = True
@@ -11,6 +11,7 @@ should_transfer_files  = NO
 
 # Provide these at submit time:
 #   -append "ROOT=/abs/path/to/repo" \
+#   -append "RUNS_ROOT=/abs/path/to/repo/runs" \
 #   -append "RUN_ID=runXYZ" \
 #   -append "CH_RANGE=1-22" \
 
@@ -19,9 +20,9 @@ executable             = scripts/run_batchpair.sh
 arguments              = $(B1) $(B2) $(CH_RANGE)
 environment            = "RUN_ID=$(RUN_ID)"
 
-log                    = runs/$(RUN_ID)/logs/condor/batchpair.$(Cluster).log
-output                 = runs/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).out
-error                  = runs/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).err
+log                    = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).log
+output                 = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).out
+error                  = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).err
 
 # Tune per your node size. Demo is tiny; real runs may need more.
 request_cpus           = 1
@@ -32,4 +33,4 @@ request_disk           = 4GB
 on_exit_hold           = (ExitBySignal == True) || (ExitCode != 0)
 
 # The input file contains two tab-separated integers per line: B1<TAB>B2
-queue B1, B2 from runs/$(RUN_ID)/meta/batchpairs.tsv
+queue B1, B2 from $(RUNS_ROOT)/$(RUN_ID)/meta/batchpairs.tsv
