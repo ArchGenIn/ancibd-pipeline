@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck disable=SC1091
 source "$ROOT/scripts/lib.sh"
 load_config
 require_cmd apptainer
 
-CH_RANGE="${1:-1-22}"
+CH_RANGE="${1:-${CH_RANGE:-1-22}}"
 RUN_ID="${RUN_ID:?set RUN_ID env var}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 

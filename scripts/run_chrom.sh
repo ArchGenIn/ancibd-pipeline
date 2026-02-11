@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck disable=SC1091
 source "$ROOT/scripts/lib.sh"
 load_config
 require_cmd apptainer
@@ -24,16 +23,7 @@ AF_PATH="$(tpl "$AF_TEMPLATE" "$CH")"
 [[ -f "$AF_PATH" ]] || die "Missing AF: $AF_PATH"
 [[ -f "$MAP_PATH" ]] || die "Missing map: $MAP_PATH"
 
-# Convert an absolute host path under $DATA_ROOT into a relative path (prefix check).
-DATA_ROOT_NORM="${DATA_ROOT%/}"
-rel_under_data() {
-  local p="$1"
-  case "$p" in
-    "$DATA_ROOT_NORM"/*) printf '%s\n' "${p#"$DATA_ROOT_NORM"/}" ;;
-    *) die "Path is not under DATA_ROOT ($DATA_ROOT_NORM): $p" ;;
-  esac
-}
-
+DATA_ROOT_NORM="$(data_root_norm)"
 VCF_REL="$(rel_under_data "$VCF_PATH")"
 MARKER_REL="$(rel_under_data "$MARKER_PATH")"
 MAP_REL="$(rel_under_data "$MAP_PATH")"
