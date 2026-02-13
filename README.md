@@ -43,32 +43,33 @@ All workflows are available via a single wrapper command at repo root:
 The CLI currently exposes these modes:
 
 ```bash
-# Local, single chromosome
-RUN_ID="$(./scripts/new_run.sh demo)"
-export RUN_ID
-./ancibd-pipeline run-chrom 20
+# Stand-alone, one run per chromosome in CH_RANGE
+RUN_ID="$(./scripts/new_run.sh demo)"; export RUN_ID
+./ancibd-pipeline run-chrom 20-20
 
-# HTCondor, single chromosome (submits condor/ancibd_ch.sub)
-RUN_ID="$(./scripts/new_run.sh demo_condor)"
-export RUN_ID
-./ancibd-pipeline run-chrom-condor 20
+# After per-chromosome runs finished, generate summary
+./ancibd-pipeline run-chrom 20-20 --summarize
 
-# HTCondor DAGMan: one job per chromosome in CH_RANGE, then summary
-RUN_ID="$(./scripts/new_run.sh demo_dag)"
-export RUN_ID
+# HTCondor, one job per chromosome in CH_RANGE (submits condor/ancibd_ch.sub)
+RUN_ID="$(./scripts/new_run.sh demo_condor)"; export RUN_ID
+./ancibd-pipeline run-chrom-condor 20-20
+
+# After per-chromosome jobs finished, submit summary (submits condor/ancibd_summary.sub)
+./ancibd-pipeline run-chrom-condor 20-20 --summarize
+
+# HTCondor DAGMan, one job per chromosome in CH_RANGE, then summary
+RUN_ID="$(./scripts/new_run.sh demo_dag)"; export RUN_ID
 ./ancibd-pipeline run-chrom-dag 20-20
 
-# Local batchpairs + merge
-RUN_ID="$(./scripts/new_run.sh demo_batches)"
-export RUN_ID
+# Stand-alone, batchpairs + merge
+RUN_ID="$(./scripts/new_run.sh demo_batches)"; export RUN_ID
 ./ancibd-pipeline run-batch 20-20
 
-# HTCondor batchpairs (submit batchpair jobs)
-RUN_ID="$(./scripts/new_run.sh demo_batch_condor)"
-export RUN_ID
+# HTCondor, batchpairs (submits condor/ancibd_batchpair.sub)
+RUN_ID="$(./scripts/new_run.sh demo_batch_condor)"; export RUN_ID
 ./ancibd-pipeline run-batch-condor 20-20
 
-# After batchpair jobs finished, submit merge job
+# After batchpair jobs finished, submit merge job (submits condor/ancibd_merge.sub)
 ./ancibd-pipeline run-batch-condor 20-20 --merge
 ```
 

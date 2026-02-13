@@ -23,11 +23,15 @@ Usage:
   ancibd-pipeline <command> [args...]
 
 Commands:
-  run-chrom <CH>
-      Run a single chromosome locally (requires RUN_ID env var).
+  run-chrom [CH_RANGE] [--summarize]
+      Run all chromosomes for CH_RANGE (default: CH_RANGE env or 1-22).
+      Use --summarize *after* all per-chromosome runs finished to generate the summary.
+      Requires RUN_ID env var.
 
-  run-chrom-condor <CH>
-      Submit a single chromosome job via HTCondor (requires RUN_ID env var).
+  run-chrom-condor [CH_RANGE] [--summarize]
+      Submit all chromosome jobs via HTCondor for CH_RANGE (default: CH_RANGE env or 1-22).
+      Use --summarize *after* all per-chromosome jobs finished to submit the summary job.
+      Requires RUN_ID env var.
 
   run-chrom-dag [CH_RANGE]
       Generate a per-run DAG directory and submit a DAGMan workflow:
@@ -35,11 +39,11 @@ Commands:
       Requires RUN_ID env var.
 
   run-batch [CH_RANGE]
-      Run all batch pairs locally for CH_RANGE (default: CH_RANGE env or 1-22)
-      and merge outputs (requires RUN_ID env var).
+      Run all batch pairs for CH_RANGE (default: CH_RANGE env or 1-22) and merge outputs.
+      Requires RUN_ID env var.
 
   run-batch-condor [CH_RANGE] [--merge]
-      Submit one job per (batch_i, batch_j) pair via HTCondor for CH_RANGE.
+      Submit one job per (batch_i, batch_j) pair via HTCondor for CH_RANGE (default: CH_RANGE env or 1-22).
       Use --merge *after* all batchpair jobs finished to submit the merge job.
       Requires RUN_ID env var.
 
@@ -61,24 +65,67 @@ case "$cmd" in
     ;;
 
   run-chrom)
-    exec "$ROOT/scripts/run_chrom.sh" "$@"
+    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
+    SUMMARIZE=0
+    if [[ "${2:-}" == "--summarize" ]]; then
+      SUMMARIZE=1
+    elif [[ "${1:-}" == "--summarize" ]]; then
+      # Allow: run-chrom --summarize (uses CH_RANGE env/default)
+      SUMMARIZE=1
+      CH_RANGE="${CH_RANGE:-1-22}"
+    fi
+
+    RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
+
+    if [[ $SUMMARIZE -eq 1 ]]; then
+      exec "$ROOT/scripts/run_summary.sh" "$CH_RANGE"
+    else
+    read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
+    for ((ch=CH_START; ch<=CH_END; ch++)); do
+      "$ROOT/scripts/run_chrom.sh" "$ch"
+    done
+
+      echo "NOTE: When all per-chromosome runs finished, generate the summary with:" >&2
+      echo "  ancibd-pipeline run-chrom $CH_RANGE --summarize" >&2
+    fi
     ;;
 
   run-chrom-condor)
-    CH="${1:?usage: ancibd-pipeline run-chrom-condor <CH>}"
-    shift || true
+    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
+    SUMMARIZE=0
+    if [[ "${2:-}" == "--summarize" ]]; then
+      SUMMARIZE=1
+    elif [[ "${1:-}" == "--summarize" ]]; then
+      # Allow: run-chrom-condor --summarize (uses CH_RANGE env/default)
+      SUMMARIZE=1
+      CH_RANGE="${CH_RANGE:-1-22}"
+    fi
+
     load_config
     require_cmd condor_submit
     RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
 
-    # Provide submit-time macros expected by condor/ancibd_ch.sub.
-    condor_submit \
-      -append "ROOT=$ROOT" \
-      -append "RUNS_ROOT=$RUNS_ROOT" \
-      -append "RUN_ID=$RUN_ID" \
-      -append "CH=$CH" \
-      "$ROOT/condor/ancibd_ch.sub" \
-      "$@"
+    if [[ $SUMMARIZE -eq 1 ]]; then
+      condor_submit \
+        -append "ROOT=$ROOT" \
+        -append "RUNS_ROOT=$RUNS_ROOT" \
+        -append "RUN_ID=$RUN_ID" \
+        -append "CH_RANGE=$CH_RANGE" \
+        "$ROOT/condor/ancibd_summary.sub"
+    else
+      read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
+      for ((ch=CH_START; ch<=CH_END; ch++)); do
+        condor_submit \
+          -append "ROOT=$ROOT" \
+          -append "RUNS_ROOT=$RUNS_ROOT" \
+          -append "RUN_ID=$RUN_ID" \
+          -append "CH=$ch" \
+          "$ROOT/condor/ancibd_ch.sub"
+      done
+
+      echo "NOTE: When all per-chromosome jobs finished, submit the summary job with:" >&2
+      echo "  ancibd-pipeline run-chrom-condor $CH_RANGE --merge" >&2
+    fi
     ;;
 
   run-chrom-dag)
@@ -152,13 +199,6 @@ case "$cmd" in
     # Ensure batchpairs exist before submitting.
     "$ROOT/scripts/make_batchpairs.sh" >/dev/null
 
-    condor_submit \
-      -append "ROOT=$ROOT" \
-      -append "RUNS_ROOT=$RUNS_ROOT" \
-      -append "RUN_ID=$RUN_ID" \
-      -append "CH_RANGE=$CH_RANGE" \
-      "$ROOT/condor/ancibd_batchpair.sub"
-
     if [[ $MERGE -eq 1 ]]; then
       condor_submit \
         -append "ROOT=$ROOT" \
@@ -166,6 +206,13 @@ case "$cmd" in
         -append "RUN_ID=$RUN_ID" \
         "$ROOT/condor/ancibd_merge.sub"
     else
+      condor_submit \
+        -append "ROOT=$ROOT" \
+        -append "RUNS_ROOT=$RUNS_ROOT" \
+        -append "RUN_ID=$RUN_ID" \
+        -append "CH_RANGE=$CH_RANGE" \
+        "$ROOT/condor/ancibd_batchpair.sub"
+
       echo "NOTE: When all batchpair jobs finished, submit the merge job with:" >&2
       echo "  ancibd-pipeline run-batch-condor $CH_RANGE --merge" >&2
     fi
