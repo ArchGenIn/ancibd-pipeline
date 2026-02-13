@@ -30,6 +30,48 @@ cp config/example.env config/local.env
 ./containers/build.sh
 ```
 
+## Top-level CLI (recommended)
+
+Assumes you completed **Prep**.
+
+All workflows are available via a single wrapper command at repo root:
+
+```bash
+./ancibd-pipeline --help
+```
+
+The CLI currently exposes these modes:
+
+```bash
+# Local, single chromosome
+RUN_ID="$(./scripts/new_run.sh demo)"
+export RUN_ID
+./ancibd-pipeline run-chrom 20
+
+# HTCondor, single chromosome (submits condor/ancibd_ch.sub)
+RUN_ID="$(./scripts/new_run.sh demo_condor)"
+export RUN_ID
+./ancibd-pipeline run-chrom-condor 20
+
+# HTCondor DAGMan: one job per chromosome in CH_RANGE, then summary
+RUN_ID="$(./scripts/new_run.sh demo_dag)"
+export RUN_ID
+./ancibd-pipeline run-chrom-dag 20-20
+
+# Local batchpairs + merge
+RUN_ID="$(./scripts/new_run.sh demo_batches)"
+export RUN_ID
+./ancibd-pipeline run-batch 20-20
+
+# HTCondor batchpairs (submit batchpair jobs)
+RUN_ID="$(./scripts/new_run.sh demo_batch_condor)"
+export RUN_ID
+./ancibd-pipeline run-batch-condor 20-20
+
+# After batchpair jobs finished, submit merge job
+./ancibd-pipeline run-batch-condor 20-20 --merge
+```
+
 ## Quickstart (local)
 
 Assumes you completed **Prep**.
