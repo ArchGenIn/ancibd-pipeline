@@ -71,6 +71,10 @@ RUN_ID="$(./scripts/new_run.sh demo_batch_condor)"; export RUN_ID
 
 # After batchpair jobs finished, submit merge job (submits condor/ancibd_merge.sub)
 ./ancibd-pipeline run-batch-condor 20-20 --merge
+
+# HTCondor DAGMan, batchpair jobs for CH_RANGE, then merge
+RUN_ID="$(./scripts/new_run.sh demo_batch_dag)"; export RUN_ID
+./ancibd-pipeline run-batch-dag 20-20
 ```
 
 ## Quickstart (local)
