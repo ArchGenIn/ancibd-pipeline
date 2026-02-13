@@ -65,14 +65,24 @@ case "$cmd" in
     ;;
 
   run-chrom)
-    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
+    CH_RANGE="${CH_RANGE:-1-22}"
     SUMMARIZE=0
-    if [[ "${2:-}" == "--summarize" ]]; then
+
+    # Accept:
+    #   run-chrom
+    #   run-chrom <CH_RANGE>
+    #   run-chrom <CH_RANGE> --summarize
+    #   run-chrom --summarize
+    if [[ "${1:-}" == "--summarize" ]]; then
       SUMMARIZE=1
-    elif [[ "${1:-}" == "--summarize" ]]; then
-      # Allow: run-chrom --summarize (uses CH_RANGE env/default)
+      shift
+    elif [[ -n "${1:-}" ]]; then
+      CH_RANGE="$1"
+      shift
+    fi
+    if [[ "${1:-}" == "--summarize" ]]; then
       SUMMARIZE=1
-      CH_RANGE="${CH_RANGE:-1-22}"
+      shift
     fi
 
     RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
@@ -80,10 +90,10 @@ case "$cmd" in
     if [[ $SUMMARIZE -eq 1 ]]; then
       exec "$ROOT/scripts/run_summary.sh" "$CH_RANGE"
     else
-    read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
-    for ((ch=CH_START; ch<=CH_END; ch++)); do
-      "$ROOT/scripts/run_chrom.sh" "$ch"
-    done
+      read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
+      for ((ch=CH_START; ch<=CH_END; ch++)); do
+        "$ROOT/scripts/run_chrom.sh" "$ch"
+      done
 
       echo "NOTE: When all per-chromosome runs finished, generate the summary with:" >&2
       echo "  ancibd-pipeline run-chrom $CH_RANGE --summarize" >&2
@@ -91,14 +101,24 @@ case "$cmd" in
     ;;
 
   run-chrom-condor)
-    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
+    CH_RANGE="${CH_RANGE:-1-22}"
     SUMMARIZE=0
-    if [[ "${2:-}" == "--summarize" ]]; then
+
+    # Accept:
+    #   run-chrom-condor
+    #   run-chrom-condor <CH_RANGE>
+    #   run-chrom-condor <CH_RANGE> --summarize
+    #   run-chrom-condor --summarize
+    if [[ "${1:-}" == "--summarize" ]]; then
       SUMMARIZE=1
-    elif [[ "${1:-}" == "--summarize" ]]; then
-      # Allow: run-chrom-condor --summarize (uses CH_RANGE env/default)
+      shift
+    elif [[ -n "${1:-}" ]]; then
+      CH_RANGE="$1"
+      shift
+    fi
+    if [[ "${1:-}" == "--summarize" ]]; then
       SUMMARIZE=1
-      CH_RANGE="${CH_RANGE:-1-22}"
+      shift
     fi
 
     load_config
@@ -124,7 +144,7 @@ case "$cmd" in
       done
 
       echo "NOTE: When all per-chromosome jobs finished, submit the summary job with:" >&2
-      echo "  ancibd-pipeline run-chrom-condor $CH_RANGE --merge" >&2
+      echo "  ancibd-pipeline run-chrom-condor $CH_RANGE --summarize" >&2
     fi
     ;;
 
@@ -182,14 +202,24 @@ case "$cmd" in
     ;;
 
   run-batch-condor)
-    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
+    CH_RANGE="${CH_RANGE:-1-22}"
     MERGE=0
-    if [[ "${2:-}" == "--merge" ]]; then
+
+    # Accept:
+    #   run-batch-condor
+    #   run-batch-condor <CH_RANGE>
+    #   run-batch-condor <CH_RANGE> --merge
+    #   run-batch-condor --merge
+    if [[ "${1:-}" == "--merge" ]]; then
       MERGE=1
-    elif [[ "${1:-}" == "--merge" ]]; then
-      # Allow: run-batch-condor --merge (uses CH_RANGE env/default)
+      shift
+    elif [[ -n "${1:-}" ]]; then
+      CH_RANGE="$1"
+      shift
+    fi
+    if [[ "${1:-}" == "--merge" ]]; then
       MERGE=1
-      CH_RANGE="${CH_RANGE:-1-22}"
+      shift
     fi
 
     load_config
