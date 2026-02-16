@@ -6,6 +6,7 @@ load_config
 require_cmd apptainer
 
 CH="${1:?usage: run_chrom.sh <CH>}"
+
 RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 
@@ -14,29 +15,33 @@ RUN_DIR="$RUNS_ROOT/$RUN_ID"
 mkdir -p "$RUN_DIR"/{work,out,logs}
 "$ROOT/scripts/write_manifest.sh"
 
-VCF_PATH="$(tpl "$VCF_TEMPLATE" "$CH")"
+# Inputs
+H5_PATH="$(tpl "$HDF5_TEMPLATE" "$CH")"
 MARKER_PATH="$(tpl "$MARKER_TEMPLATE" "$CH")"
 AF_PATH="$(tpl "$AF_TEMPLATE" "$CH")"
 
-[[ -f "$VCF_PATH" ]] || die "Missing VCF: $VCF_PATH"
+[[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${CH}: $H5_PATH (build it first: ancibd-pipeline build-hdf5 ${CH}-${CH})"
 [[ -f "$MARKER_PATH" ]] || die "Missing markers: $MARKER_PATH"
 [[ -f "$AF_PATH" ]] || die "Missing AF: $AF_PATH"
 [[ -f "$MAP_PATH" ]] || die "Missing map: $MAP_PATH"
 
 DATA_ROOT_NORM="$(data_root_norm)"
-VCF_REL="$(rel_under_data "$VCF_PATH")"
+HDF5_ROOT_NORM="$(hdf5_root_norm)"
+
+H5_REL="$(rel_under_hdf5 "$H5_PATH")"
 MARKER_REL="$(rel_under_data "$MARKER_PATH")"
 MAP_REL="$(rel_under_data "$MAP_PATH")"
 AF_REL="$(rel_under_data "$AF_PATH")"
 
-# Bind DATA read-only; bind run dir writable
+# Bind DATA + HDF5 read-only; bind run dir writable
 apptainer exec --cleanenv \
   --bind "$DATA_ROOT_NORM:/work/data:ro" \
+  --bind "$HDF5_ROOT_NORM:/work/hdf5:ro" \
   --bind "$RUN_DIR:/work/run" \
   --pwd /work \
   "$SIF_IMAGE" \
   ancIBD-run \
-    --vcf "/work/data/$VCF_REL" \
+    --h5 "/work/hdf5/$H5_REL" \
     --ch "$CH" \
     --out "/work/run/work" \
     --marker_path "/work/data/$MARKER_REL" \

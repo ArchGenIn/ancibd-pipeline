@@ -2,6 +2,11 @@ HTCondor templates.
 
 This directory contains the submit-description templates used by the top-level CLI.
 
+0) **Prebuild HDF5 inputs**:
+   - one job per chromosome (`ancibd_hdf5.sub`)
+   - typically run once per dataset, then treat HDF5s as immutable inputs.
+   - DAGMan is used by `ancibd-pipeline build-hdf5-dag`.
+
 Two patterns are included:
 
 1) **Chromosome-parallel** (simple):

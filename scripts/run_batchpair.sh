@@ -56,31 +56,35 @@ python3 "$ROOT/scripts/make_batch_plan.py" \
 
 # Prepare static per-ch inputs
 DATA_ROOT_NORM="$(data_root_norm)"
+HDF5_ROOT_NORM="$(hdf5_root_norm)"
+
+[[ -f "$MAP_PATH" ]] || die "Missing map: $MAP_PATH"
 MAP_REL="$(rel_under_data "$MAP_PATH")"
 
 # Iterate chromosomes (usually 1-22; demo is 20-20)
 read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE_RUN")
 
 for ((ch=CH_START; ch<=CH_END; ch++)); do
-  VCF_PATH="$(tpl "$VCF_TEMPLATE" "$ch")"
+  H5_PATH="$(tpl "$HDF5_TEMPLATE" "$ch")"
   MARKER_PATH="$(tpl "$MARKER_TEMPLATE" "$ch")"
   AF_PATH="$(tpl "$AF_TEMPLATE" "$ch")"
 
-  [[ -f "$VCF_PATH" ]] || die "Missing VCF: $VCF_PATH"
+  [[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${ch}: $H5_PATH (build it first: ancibd-pipeline build-hdf5 ${CH_RANGE_RUN})"
   [[ -f "$MARKER_PATH" ]] || die "Missing markers: $MARKER_PATH"
   [[ -f "$AF_PATH" ]] || die "Missing AF: $AF_PATH"
 
-  VCF_REL="$(rel_under_data "$VCF_PATH")"
+  H5_REL="$(rel_under_hdf5 "$H5_PATH")"
   MARKER_REL="$(rel_under_data "$MARKER_PATH")"
   AF_REL="$(rel_under_data "$AF_PATH")"
 
   apptainer exec --cleanenv \
     --bind "$DATA_ROOT_NORM:/work/data:ro" \
+    --bind "$HDF5_ROOT_NORM:/work/hdf5:ro" \
     --bind "$RUN_DIR:/work/run" \
     --pwd /work \
     "$SIF_IMAGE" \
     ancIBD-run \
-      --vcf "/work/data/$VCF_REL" \
+      --h5 "/work/hdf5/$H5_REL" \
       --ch "$ch" \
       --out "/work/run/work/$BATCH_TAG" \
       --marker_path "/work/data/$MARKER_REL" \

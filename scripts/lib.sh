@@ -14,6 +14,7 @@ load_config() {
   # ShellCheck can't follow dynamic paths; this is always the repo-local config.
   # shellcheck source=../config/local.env
   source "$cfg"
+
   [[ -n "${SIF_IMAGE:-}" ]] || die "SIF_IMAGE not set in config/local.env"
   [[ -n "${DATA_ROOT:-}" ]] || die "DATA_ROOT not set in config/local.env"
   [[ -n "${RUNS_ROOT:-}" ]] || die "RUNS_ROOT not set in config/local.env"
@@ -35,6 +36,10 @@ data_root_norm() {
   echo "${DATA_ROOT%/}"
 }
 
+hdf5_root_norm() {
+  echo "${HDF5_ROOT%/}"
+}
+
 rel_under_data() {
   # Convert an absolute host path under $DATA_ROOT into a path relative to it.
   # This is handy for binding $DATA_ROOT read-only into the container.
@@ -44,6 +49,17 @@ rel_under_data() {
   case "$p" in
     "$root"/*) printf '%s\n' "${p#"$root"/}" ;;
     *) die "Path is not under DATA_ROOT ($root): $p" ;;
+  esac
+}
+
+rel_under_hdf5() {
+  # Convert an absolute host path under $HDF5_ROOT into a path relative to it.
+  local p="$1"
+  local root
+  root="$(hdf5_root_norm)"
+  case "$p" in
+    "$root"/*) printf '%s\n' "${p#"$root"/}" ;;
+    *) die "Path is not under HDF5_ROOT ($root): $p" ;;
   esac
 }
 

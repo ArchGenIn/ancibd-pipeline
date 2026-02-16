@@ -1,0 +1,15 @@
+universe   = vanilla
+executable = /bin/bash
+arguments  = "-lc 'cd $(ROOT) && ./scripts/build_hdf5.sh $(CH) $(FORCE_ARG)'"
+
+request_cpus   = 1
+request_memory = 8GB
+request_disk   = 10GB
+
+log    = $(HDF5_ROOT)/logs/condor_hdf5_ch$(CH).log
+output = $(HDF5_ROOT)/logs/condor_hdf5_ch$(CH).out
+error  = $(HDF5_ROOT)/logs/condor_hdf5_ch$(CH).err
+
+notification = never
+
+queue

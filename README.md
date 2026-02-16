@@ -11,9 +11,10 @@ Reproducible ancIBD pipeline using Apptainer + HTCondor:
 
 ## Core safety rules
 1) Never write into `data/`. Treat it as immutable.
-2) Every execution uses a unique `RUN_ID` under `runs/`.
-3) A run is immutable once `runs/<RUN_ID>/DONE` exists.
-4) Container binds `data/` read-only.
+2) Derived HDF5s are written under `HDF5_ROOT` (configured in `config/local.env`).
+3) Every execution uses a unique `RUN_ID` under `runs/`.
+4) A run is immutable once `runs/<RUN_ID>/DONE` exists.
+5) Container binds `data/` (and `HDF5_ROOT`) read-only for run steps.
 
 ## Prep
 
@@ -43,6 +44,9 @@ All workflows are available via a single wrapper command at repo root:
 The CLI currently exposes these modes:
 
 ```bash
+# Build per-chromosome HDF5 inputs once (no RUN_ID required)
+./ancibd-pipeline build-hdf5 20-20
+
 # Stand-alone, one run per chromosome in CH_RANGE
 RUN_ID="$(./scripts/new_run.sh demo)"; export RUN_ID
 ./ancibd-pipeline run-chrom 20-20
@@ -84,18 +88,23 @@ RUN_ID="$(./scripts/new_run.sh demo_batch_dag)"; export RUN_ID
 
 Assumes you completed **Prep**.
 
-1) Create a new run directory and export the run id:
+1) Build the HDF5 input(s) once (here: **chr20**):
+```bash
+./ancibd-pipeline build-hdf5 20-20
+```
+
+2) Create a new run directory and export the run id:
 ```bash
 RUN_ID="$(./scripts/new_run.sh demo)"
 export RUN_ID
 ```
 
-2) Run one chromosome (e.g. **chr20**):
+3) Run one chromosome (e.g. **chr20**):
 ```bash
 ./scripts/run_chrom.sh 20
 ```
 
-3) Summary (for **chr20** only):
+4) Summary (for **chr20** only):
 ```bash
 ./scripts/run_summary.sh 20-20
 ```
@@ -126,6 +135,9 @@ export RUN_ID
 ROOT="$(pwd)"
 # If your config/local.env uses $(pwd), source it from repo root:
 source config/local.env
+
+# Build the HDF5 input(s) once (you can also use build-hdf5-condor/build-hdf5-dag)
+./ancibd-pipeline build-hdf5 20-20
 
 condor_submit \
   -append "ROOT=$ROOT" \
@@ -294,8 +306,10 @@ To compare two ancIBD summary output folders (order-insensitive):
   "$RUNS_ROOT/<RUN_ID_B>/out/merged"
 ```
 
-### Determinism note (AF_ALL vs RAF)
+### Determinism note (AF columns)
 
-ancIBD can store allele frequencies inside the HDF5. If you rely on a frequency column computed from the *samples contained in the HDF5* (often `variants/AF_ALL`), you can accidentally introduce sample-dependent behaviour when comparing runs.
+ancIBD can store allele frequencies inside the HDF5. If you compute frequencies from the *samples contained in the HDF5* (often `variants/AF_ALL`), you can accidentally introduce sample-dependent behaviour when comparing runs.
 
-If your HDF5 contains a reference allele frequency column (e.g. `variants/RAF`), prefer using that consistently for production runs: set `RAF_COL=variants/RAF` in `config/local.env` (see `RAF_COL` in `config/example.env`) so runs use a stable `--p_col`.
+This pipeline avoids that by writing a reference AF TSV into the HDF5 as `variants/AF_ALL`, and (by default) **not** computing an in-sample AF column. As long as you reuse the same HDF5, runs will use the same allele frequencies even if you subset individuals via `--iid/--pair`.
+
+If you later have a dedicated reference-frequency column in the HDF5 (e.g. `variants/RAF`), you may want to standardize on that for production runs; see the `RAF_COL` comment in `config/example.env` (reserved for future use in this repo).
