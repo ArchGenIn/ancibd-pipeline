@@ -1,36 +1,15 @@
-# One job per (batch_i, batch_j) pair.
-# Each job:
-#   - generates an IID+pair plan for that batchpair
-#   - runs ancIBD across chromosomes in CH_RANGE
-#   - runs ancIBD-summary
-#   - writes <RUNS_ROOT>/<RUN_ID>/out/<batch_tag>/DONE
+universe   = vanilla
+executable = /bin/bash
+arguments  = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/run_batchpair.sh $(B1) $(B2) $(CH_RANGE)'"
 
-universe              = vanilla
-getenv                = True
-should_transfer_files  = NO
+request_cpus   = 1
+request_memory = 8GB
+request_disk   = 4GB
 
-# Provide these at submit time:
-#   -append "ROOT=/abs/path/to/repo" \
-#   -append "RUNS_ROOT=/abs/path/to/repo/runs" \
-#   -append "RUN_ID=runXYZ" \
-#   -append "CH_RANGE=1-22" \
+log    = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).log
+output = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).out
+error  = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).err
 
-initialdir            = $(ROOT)
-executable             = scripts/run_batchpair.sh
-arguments              = $(B1) $(B2) $(CH_RANGE)
-environment            = "RUN_ID=$(RUN_ID)"
+notification = never
 
-log                    = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).log
-output                 = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).out
-error                  = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).err
-
-# Tune per your node size. Demo is tiny; real runs may need more.
-request_cpus           = 1
-request_memory         = 8GB
-request_disk           = 4GB
-
-# Safer failure mode:
-on_exit_hold           = (ExitBySignal == True) || (ExitCode != 0)
-
-# The input file contains two tab-separated integers per line: B1<TAB>B2
 queue B1, B2 from $(RUNS_ROOT)/$(RUN_ID)/meta/batchpairs.tsv

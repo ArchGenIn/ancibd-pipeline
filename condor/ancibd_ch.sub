@@ -1,6 +1,6 @@
 universe   = vanilla
 executable = /bin/bash
-arguments = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/run_chrom.sh $(CH)'"
+arguments  = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/run_chrom.sh $(CH)'"
 
 request_cpus   = 1
 request_memory = 4GB

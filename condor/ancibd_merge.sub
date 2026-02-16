@@ -1,9 +1,3 @@
-# Merge per-batch outputs into out/merged/{ch_all.tsv,ibd_ind.tsv}.
-# Submit-time macros expected:
-#   -append "ROOT=/abs/path/to/repo" \
-#   -append "RUNS_ROOT=/abs/path/to/repo/runs" \
-#   -append "RUN_ID=runXYZ" \
-
 universe   = vanilla
 executable = /bin/bash
 arguments  = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/merge_batch_outputs.sh'"
