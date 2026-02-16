@@ -12,6 +12,7 @@ set -euo pipefail
 #     ancibd-pipeline run-batch ...
 #     ancibd-pipeline run-batch-condor ...
 #     ancibd-pipeline run-batch-dag ...
+#     ancibd-pipeline check-batch ...
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -51,6 +52,12 @@ Commands:
   run-batch-dag [CH_RANGE]
       Generate a per-run DAG directory and submit a DAGMan workflow:
       batchpair jobs for CH_RANGE (default: CH_RANGE env or 1-22) -> merge.
+      Requires RUN_ID env var.
+
+  check-batch [--missing-only] [--write-missing PATH]
+      Report progress for the batchpair workflow of RUN_ID:
+      compares expected pairs in meta/batchpairs.tsv vs out/*/DONE.
+      Lists missing pairs and optionally writes them to a TSV.
       Requires RUN_ID env var.
 
 Notes:
@@ -291,6 +298,10 @@ case "$cmd" in
     } > "$DAG_FILE"
 
     (cd "$DAG_DIR" && condor_submit_dag "$(basename "$DAG_FILE")")
+    ;;
+
+  check-batch)
+    exec "$ROOT/scripts/check_batch_status.sh" "$@"
     ;;
 
   *)
