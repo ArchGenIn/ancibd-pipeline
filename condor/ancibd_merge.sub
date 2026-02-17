@@ -1,6 +1,8 @@
-universe   = vanilla
-executable = /bin/bash
-arguments  = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/merge_batch_outputs.sh'"
+universe              = vanilla
+getenv                = True
+should_transfer_files = NO
+executable            = /bin/bash
+arguments             = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/merge_batch_outputs.sh'"
 
 request_cpus   = 1
 request_memory = 2GB

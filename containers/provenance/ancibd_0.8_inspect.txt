@@ -1,5 +1,5 @@
 org.label-schema.build-arch: amd64
-org.label-schema.build-date: Monday_9_February_2026_16:2:52_CET
+org.label-schema.build-date: Tuesday_17_February_2026_13:39:45_CET
 org.label-schema.schema-version: 1.0
 org.label-schema.usage.apptainer.version: 1.4.5
 org.label-schema.usage.singularity.deffile.bootstrap: docker

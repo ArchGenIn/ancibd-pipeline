@@ -1,10 +1,12 @@
-universe   = vanilla
-executable = /bin/bash
-arguments  = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/run_batchpair.sh $(B1) $(B2) $(CH_RANGE)'"
+universe              = vanilla
+getenv                = True
+should_transfer_files = NO
+executable            = /bin/bash
+arguments             = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/run_batchpair.sh $(B1) $(B2) $(CH_RANGE)'"
 
 request_cpus   = 1
-request_memory = 8GB
-request_disk   = 4GB
+request_memory = 3GB
+request_disk   = 1GB
 
 log    = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).log
 output = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).out

@@ -34,6 +34,13 @@ cp config/example.env config/local.env
 ./containers/build.sh
 ```
 
+## Local cloud emulation (HTCondor + shared filesystem)
+
+If you want to emulate a shared-filesystem HTCondor cloud locally (e.g. via Multipass)
+before running on a real cluster, see:
+
+- `docs/local_cloud_emulation.md`
+
 ## Build HDF5 inputs
 
 Build HDF5s for a chromosome range (example: chr20 only):
