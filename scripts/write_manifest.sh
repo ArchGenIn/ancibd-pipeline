@@ -8,6 +8,13 @@ RUN_ID="${RUN_ID:?set RUN_ID env var}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 mkdir -p "$RUN_DIR"
 
+# In concurrent workflows (batchpair jobs), many jobs may try to write the
+# manifest simultaneously. The manifest is intended to be run-level metadata,
+# so treat it as write-once.
+if [[ -s "$RUN_DIR/manifest.txt" ]]; then
+  exit 0
+fi
+
 {
   echo "RUN_ID=$RUN_ID"
   echo "DATE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

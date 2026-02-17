@@ -17,6 +17,7 @@ load_config() {
 
   [[ -n "${SIF_IMAGE:-}" ]] || die "SIF_IMAGE not set in config/local.env"
   [[ -n "${DATA_ROOT:-}" ]] || die "DATA_ROOT not set in config/local.env"
+  [[ -n "${HDF5_ROOT:-}" ]] || die "HDF5_ROOT not set in config/local.env"
   [[ -n "${RUNS_ROOT:-}" ]] || die "RUNS_ROOT not set in config/local.env"
 }
 

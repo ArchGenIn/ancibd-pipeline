@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Top-level CLI wrapper for ancibd-pipeline.
+# ancibd-pipeline
 #
-# Philosophy:
-# - Keep the implementation in the existing scripts/ and condor/ templates.
-# - Provide a stable, user-facing command surface.
+# Tight wrapper around ancIBD with two execution modes:
+#   - baseline: dumb/slow/obviously-correct reference
+#   - prod:     concurrent batchpair workflow (HTCondor DAGMan)
+#
+# Plus the minimum supporting commands:
+#   - build/validate HDF5
+#   - progress checks
+#   - run directory creation
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -15,65 +20,44 @@ source "$ROOT/scripts/lib.sh"
 usage() {
   cat <<'USAGE'
 Usage:
-  ancibd-pipeline <command> [args...]
+  ./ancibd-pipeline <command> [args...]
 
-Commands:
+Core workflow:
+  baseline [CH_RANGE]
+      Dumb, slow, reference mode.
+      Runs ancIBD per chromosome for CH_RANGE (default: CH_RANGE env or 1-22),
+      then runs ancIBD-summary.
+      Outputs: runs/<RUN_ID>/out/merged/{ch_all.tsv,ibd_ind.tsv}
+      Requires RUN_ID.
+
+  prod [CH_RANGE]
+      Concurrent production mode (batchpairs + merge) using HTCondor DAGMan.
+      Outputs: runs/<RUN_ID>/out/merged/{ch_all.tsv,ibd_ind.tsv}
+      Requires RUN_ID.
+
+Inputs:
   build-hdf5 [CH_RANGE] [--force]
-      Build per-chromosome HDF5 inputs under HDF5_ROOT using ancIBD's API.
-      CH_RANGE defaults to CH_RANGE env or 1-22.
-      --force overwrites existing HDF5s; broken HDF5s are rebuilt automatically.
+      Build per-chromosome HDF5 inputs under HDF5_ROOT.
       Does NOT require RUN_ID.
 
   build-hdf5-condor [CH_RANGE] [--force]
-      Submit one HDF5 build job per chromosome via HTCondor.
+      Same as build-hdf5, but submits one job per chromosome via HTCondor.
       Does NOT require RUN_ID.
 
-  build-hdf5-dag [CH_RANGE] [--force]
-      Generate and submit a DAGMan workflow that builds HDF5s for CH_RANGE.
-      DAG artifacts are written under HDF5_ROOT/condor/.
+  validate-hdf5 [CH_RANGE]
+      Validate the HDF5s expected for CH_RANGE.
       Does NOT require RUN_ID.
 
-  run-chrom [CH_RANGE] [--summarize]
-      Run all chromosomes for CH_RANGE (default: CH_RANGE env or 1-22).
-      Use --summarize *after* all per-chromosome runs finished to generate the summary.
-      Requires RUN_ID env var.
-
-  run-chrom-condor [CH_RANGE] [--summarize]
-      Submit all chromosome jobs via HTCondor for CH_RANGE (default: CH_RANGE env or 1-22).
-      Use --summarize *after* all per-chromosome jobs finished to submit the summary job.
-      Requires RUN_ID env var.
-
-  run-chrom-dag [CH_RANGE]
-      Generate a per-run DAG directory and submit a DAGMan workflow:
-      chromosome jobs for CH_RANGE (default: CH_RANGE env or 1-22) -> summary.
-      Requires RUN_ID env var.
-
-  run-batch [CH_RANGE]
-      Run all batch pairs for CH_RANGE (default: CH_RANGE env or 1-22) and merge outputs.
-      Requires RUN_ID env var.
-
-  run-batch-condor [CH_RANGE] [--merge]
-      Submit one job per (batch_i, batch_j) pair via HTCondor for CH_RANGE (default: CH_RANGE env or 1-22).
-      Use --merge *after* all batchpair jobs finished to submit the merge job.
-      Requires RUN_ID env var.
-
-  run-batch-dag [CH_RANGE]
-      Generate a per-run DAG directory and submit a DAGMan workflow:
-      batchpair jobs for CH_RANGE (default: CH_RANGE env or 1-22) -> merge.
-      Requires RUN_ID env var.
+Utilities:
+  new-run <TAG>
+      Create a new run directory and print the RUN_ID.
 
   check-batch [--missing-only] [--write-missing PATH]
-      Report progress for the batchpair workflow of RUN_ID:
-      compares expected pairs in meta/batchpairs.tsv vs out/*/DONE.
-      Lists missing pairs and optionally writes them to a TSV.
-      Requires RUN_ID env var.
+      Report progress for the prod workflow of RUN_ID.
 
 Notes:
-  - All commands assume you have a configured config/local.env (copy from
-    config/example.env).
-  - Most run modes require a run directory created beforehand:
-        RUN_ID="$(./scripts/new_run.sh demo)"; export RUN_ID
-  - HDF5 inputs must be prebuilt (use build-hdf5* commands).
+  - Configure the pipeline by copying config/example.env to config/local.env.
+  - Build the container image once with ./containers/build.sh
 USAGE
 }
 
@@ -86,15 +70,15 @@ case "$cmd" in
     exit 0
     ;;
 
+  new-run)
+    tag="${1:-}"
+    [[ -n "$tag" ]] || die "usage: ./ancibd-pipeline new-run <TAG>"
+    exec "$ROOT/scripts/new_run.sh" "$tag"
+    ;;
+
   build-hdf5)
     CH_RANGE="${CH_RANGE:-1-22}"
     FORCE=0
-
-    # Accept:
-    #   build-hdf5
-    #   build-hdf5 <CH_RANGE>
-    #   build-hdf5 <CH_RANGE> --force
-    #   build-hdf5 --force
     if [[ "${1:-}" == "--force" ]]; then
       FORCE=1
       shift
@@ -107,9 +91,7 @@ case "$cmd" in
       shift
     fi
 
-    # build_hdf5.sh loads config; we only need the range parser here.
     read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
-
     for ((ch=CH_START; ch<=CH_END; ch++)); do
       if [[ $FORCE -eq 1 ]]; then
         "$ROOT/scripts/build_hdf5.sh" "$ch" --force
@@ -122,12 +104,6 @@ case "$cmd" in
   build-hdf5-condor)
     CH_RANGE="${CH_RANGE:-1-22}"
     FORCE=0
-
-    # Accept:
-    #   build-hdf5-condor
-    #   build-hdf5-condor <CH_RANGE>
-    #   build-hdf5-condor <CH_RANGE> --force
-    #   build-hdf5-condor --force
     if [[ "${1:-}" == "--force" ]]; then
       FORCE=1
       shift
@@ -160,255 +136,62 @@ case "$cmd" in
     done
     ;;
 
-  build-hdf5-dag)
+  validate-hdf5)
     CH_RANGE="${1:-${CH_RANGE:-1-22}}"
     shift || true
-    FORCE=0
-    if [[ "${1:-}" == "--force" ]]; then
-      FORCE=1
-      shift
-    fi
-
     load_config
-    require_cmd condor_submit_dag
-    mkdir -p "$HDF5_ROOT/logs" "$HDF5_ROOT/condor"
+    exec "$ROOT/scripts/validate_hdf5_range.sh" "$CH_RANGE"
+    ;;
 
-    FORCE_ARG=""
-    if [[ $FORCE -eq 1 ]]; then
-      FORCE_ARG="--force"
+  baseline)
+    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
+    shift || true
+    load_config
+    RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
+
+    RUN_DIR="$RUNS_ROOT/$RUN_ID"
+    [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
+    if [[ -d "$RUN_DIR/work" ]] && find "$RUN_DIR/work" -type f -print -quit | grep -q .; then
+      die "Run workdir is not empty: $RUN_DIR/work\nCreate a new RUN_ID with: ./ancibd-pipeline new-run <tag>"
     fi
+    if [[ -d "$RUN_DIR/out" ]] && find "$RUN_DIR/out" -type f -print -quit | grep -q .; then
+      die "Run outdir is not empty: $RUN_DIR/out\nCreate a new RUN_ID with: ./ancibd-pipeline new-run <tag>"
+    fi
+
+    mkdir -p "$RUN_DIR"/{meta,work,out,logs}
+    "$ROOT/scripts/write_manifest.sh"
 
     read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
+    for ((ch=CH_START; ch<=CH_END; ch++)); do
+      "$ROOT/scripts/run_chrom.sh" "$ch"
+    done
 
-    ts="$(date +%Y%m%d_%H%M%S)"
-    DAG_DIR="$HDF5_ROOT/condor/hdf5_$ts"
-    mkdir -p "$DAG_DIR"
-
-    cp "$ROOT/condor/ancibd_hdf5.sub" "$DAG_DIR/"
-
-    DAG_FILE="$DAG_DIR/hdf5.dag"
-    {
-      echo "# Auto-generated by ancibd-pipeline build-hdf5-dag"
-      echo "# Repo root: $ROOT"
-      echo "# HDF5_ROOT: $HDF5_ROOT"
-      echo "# CH_RANGE: $CH_RANGE"
-      echo
-
-      for ((ch=CH_START; ch<=CH_END; ch++)); do
-        node="H5$(printf '%02d' "$ch")"
-        echo "JOB $node ancibd_hdf5.sub"
-        echo "VARS $node ROOT=\"$ROOT\" HDF5_ROOT=\"$HDF5_ROOT\" CH=\"$ch\" FORCE_ARG=\"$FORCE_ARG\""
-        echo
-      done
-    } > "$DAG_FILE"
-
-    (cd "$DAG_DIR" && condor_submit_dag "$(basename "$DAG_FILE")")
+    exec "$ROOT/scripts/run_summary.sh" "$CH_RANGE"
     ;;
 
-  run-chrom)
-    CH_RANGE="${CH_RANGE:-1-22}"
-    SUMMARIZE=0
-
-    # Accept:
-    #   run-chrom
-    #   run-chrom <CH_RANGE>
-    #   run-chrom <CH_RANGE> --summarize
-    #   run-chrom --summarize
-    if [[ "${1:-}" == "--summarize" ]]; then
-      SUMMARIZE=1
-      shift
-    elif [[ -n "${1:-}" ]]; then
-      CH_RANGE="$1"
-      shift
-    fi
-    if [[ "${1:-}" == "--summarize" ]]; then
-      SUMMARIZE=1
-      shift
-    fi
-
-    RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
-
-    if [[ $SUMMARIZE -eq 1 ]]; then
-      exec "$ROOT/scripts/run_summary.sh" "$CH_RANGE"
-    else
-      read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
-      for ((ch=CH_START; ch<=CH_END; ch++)); do
-        "$ROOT/scripts/run_chrom.sh" "$ch"
-      done
-
-      echo "NOTE: When all per-chromosome runs finished, generate the summary with:" >&2
-      echo "  ancibd-pipeline run-chrom $CH_RANGE --summarize" >&2
-    fi
-    ;;
-
-  run-chrom-condor)
-    CH_RANGE="${CH_RANGE:-1-22}"
-    SUMMARIZE=0
-
-    # Accept:
-    #   run-chrom-condor
-    #   run-chrom-condor <CH_RANGE>
-    #   run-chrom-condor <CH_RANGE> --summarize
-    #   run-chrom-condor --summarize
-    if [[ "${1:-}" == "--summarize" ]]; then
-      SUMMARIZE=1
-      shift
-    elif [[ -n "${1:-}" ]]; then
-      CH_RANGE="$1"
-      shift
-    fi
-    if [[ "${1:-}" == "--summarize" ]]; then
-      SUMMARIZE=1
-      shift
-    fi
-
-    load_config
-    require_cmd condor_submit
-    RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
-
-    if [[ $SUMMARIZE -eq 1 ]]; then
-      condor_submit \
-        -append "ROOT=$ROOT" \
-        -append "RUNS_ROOT=$RUNS_ROOT" \
-        -append "RUN_ID=$RUN_ID" \
-        -append "CH_RANGE=$CH_RANGE" \
-        "$ROOT/condor/ancibd_summary.sub"
-    else
-      read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
-      for ((ch=CH_START; ch<=CH_END; ch++)); do
-        condor_submit \
-          -append "ROOT=$ROOT" \
-          -append "RUNS_ROOT=$RUNS_ROOT" \
-          -append "RUN_ID=$RUN_ID" \
-          -append "CH=$ch" \
-          "$ROOT/condor/ancibd_ch.sub"
-      done
-
-      echo "NOTE: When all per-chromosome jobs finished, submit the summary job with:" >&2
-      echo "  ancibd-pipeline run-chrom-condor $CH_RANGE --summarize" >&2
-    fi
-    ;;
-
-  run-chrom-dag)
+  prod)
     CH_RANGE="${1:-${CH_RANGE:-1-22}}"
     shift || true
     load_config
     require_cmd condor_submit_dag
-    RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
+    RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
 
-    # Parse and expand range.
-    read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
+    RUN_DIR="$RUNS_ROOT/$RUN_ID"
+    [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
+    mkdir -p "$RUN_DIR"/{meta,work,out,logs,logs/condor}
+    "$ROOT/scripts/write_manifest.sh"
 
-    # Keep DAGMan artifacts out of the repo root, and keep chrom vs batch DAGs separate.
-    DAG_DIR="$RUNS_ROOT/$RUN_ID/condor/chrom"
-    mkdir -p "$DAG_DIR"
-
-    # Copy submit templates into the per-run DAG directory.
-    cp "$ROOT/condor/ancibd_ch.sub" "$ROOT/condor/ancibd_summary.sub" "$DAG_DIR/"
-
-    DAG_FILE="$DAG_DIR/chrom.dag"
-    {
-      echo "# Auto-generated by ancibd-pipeline run-chrom-dag"
-      echo "# Repo root: $ROOT"
-      echo "# RUN_ID: $RUN_ID"
-      echo "# CH_RANGE: $CH_RANGE"
-      echo
-
-      parents=()
-      for ((ch=CH_START; ch<=CH_END; ch++)); do
-        # DAG node names must be simple identifiers.
-        node="CH$(printf '%02d' "$ch")"
-        parents+=("$node")
-        echo "JOB $node ancibd_ch.sub"
-        echo "VARS $node ROOT=\"$ROOT\" RUNS_ROOT=\"$RUNS_ROOT\" RUN_ID=\"$RUN_ID\" CH=\"$ch\""
-        echo
-      done
-
-      echo "JOB SUM ancibd_summary.sub"
-      echo "VARS SUM ROOT=\"$ROOT\" RUNS_ROOT=\"$RUNS_ROOT\" RUN_ID=\"$RUN_ID\" CH_RANGE=\"$CH_RANGE\""
-      echo
-
-      echo -n "PARENT"
-      for node in "${parents[@]}"; do
-        echo -n " $node"
-      done
-      echo " CHILD SUM"
-    } > "$DAG_FILE"
-
-    (cd "$DAG_DIR" && condor_submit_dag "$(basename "$DAG_FILE")")
-    ;;
-
-  run-batch)
-    exec "$ROOT/scripts/run_all_batches_local.sh" "$@"
-    ;;
-
-  run-batch-condor)
-    CH_RANGE="${CH_RANGE:-1-22}"
-    MERGE=0
-
-    # Accept:
-    #   run-batch-condor
-    #   run-batch-condor <CH_RANGE>
-    #   run-batch-condor <CH_RANGE> --merge
-    #   run-batch-condor --merge
-    if [[ "${1:-}" == "--merge" ]]; then
-      MERGE=1
-      shift
-    elif [[ -n "${1:-}" ]]; then
-      CH_RANGE="$1"
-      shift
-    fi
-    if [[ "${1:-}" == "--merge" ]]; then
-      MERGE=1
-      shift
-    fi
-
-    load_config
-    require_cmd condor_submit
-    RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
-
-    # Ensure batchpairs exist before submitting.
+    # Ensure IID list and batchpairs exist before submitting.
+    "$ROOT/scripts/make_iid_list.sh" >/dev/null
     "$ROOT/scripts/make_batchpairs.sh" >/dev/null
 
-    if [[ $MERGE -eq 1 ]]; then
-      condor_submit \
-        -append "ROOT=$ROOT" \
-        -append "RUNS_ROOT=$RUNS_ROOT" \
-        -append "RUN_ID=$RUN_ID" \
-        "$ROOT/condor/ancibd_merge.sub"
-    else
-      condor_submit \
-        -append "ROOT=$ROOT" \
-        -append "RUNS_ROOT=$RUNS_ROOT" \
-        -append "RUN_ID=$RUN_ID" \
-        -append "CH_RANGE=$CH_RANGE" \
-        "$ROOT/condor/ancibd_batchpair.sub"
-
-      echo "NOTE: When all batchpair jobs finished, submit the merge job with:" >&2
-      echo "  ancibd-pipeline run-batch-condor $CH_RANGE --merge" >&2
-    fi
-    ;;
-
-  run-batch-dag)
-    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
-    shift || true
-    load_config
-    require_cmd condor_submit_dag
-    RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
-
-    # Ensure batchpairs exist before submitting.
-    "$ROOT/scripts/make_batchpairs.sh" >/dev/null
-
-    # Keep DAGMan artifacts out of the repo root, and keep chrom vs batch DAGs separate.
     DAG_DIR="$RUNS_ROOT/$RUN_ID/condor/batch"
     mkdir -p "$DAG_DIR"
-
-    # Copy submit templates into the per-run DAG directory.
     cp "$ROOT/condor/ancibd_batchpair.sub" "$ROOT/condor/ancibd_merge.sub" "$DAG_DIR/"
 
     DAG_FILE="$DAG_DIR/batch.dag"
     {
-      echo "# Auto-generated by ancibd-pipeline run-batch-dag"
+      echo "# Auto-generated by ancibd-pipeline prod"
       echo "# Repo root: $ROOT"
       echo "# RUN_ID: $RUN_ID"
       echo "# CH_RANGE: $CH_RANGE"
@@ -433,7 +216,6 @@ case "$cmd" in
     ;;
 
   *)
-    die "Unknown command: $cmd (run 'ancibd-pipeline --help')"
+    die "Unknown command: $cmd (run './ancibd-pipeline --help')"
     ;;
-
 esac

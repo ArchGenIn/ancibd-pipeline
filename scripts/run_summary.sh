@@ -12,6 +12,7 @@ RUN_DIR="$RUNS_ROOT/$RUN_ID"
 [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
 
 mkdir -p "$RUN_DIR"/{work,out,logs}
+mkdir -p "$RUN_DIR/out/merged"
 
 apptainer exec --cleanenv \
   --bind "$DATA_ROOT:/work/data:ro" \
@@ -21,7 +22,7 @@ apptainer exec --cleanenv \
   ancIBD-summary \
     --tsv "/work/run/work/${PREFIX}.ch" \
     --ch "$CH_RANGE" \
-    --out "/work/run/out/" \
+    --out "/work/run/out/merged" \
   >"$RUN_DIR/logs/summary.out" 2>"$RUN_DIR/logs/summary.err"
 
 date -u +%Y-%m-%dT%H:%M:%SZ > "$RUN_DIR/DONE"

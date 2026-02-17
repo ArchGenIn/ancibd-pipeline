@@ -1,59 +1,9 @@
-HTCondor templates.
+# HTCondor templates
 
-This directory contains the submit-description templates used by the top-level CLI.
+This folder contains the minimal submit templates used by `./ancibd-pipeline`:
 
-0) **Prebuild HDF5 inputs**:
-   - one job per chromosome (`ancibd_hdf5.sub`)
-   - typically run once per dataset, then treat HDF5s as immutable inputs.
-   - DAGMan is used by `ancibd-pipeline build-hdf5-dag`.
+- `ancibd_hdf5.sub` – one job builds one chromosome HDF5 (used by `build-hdf5-condor`)
+- `ancibd_batchpair.sub` – a submit file that queues all batchpairs from `runs/<RUN_ID>/meta/batchpairs.tsv`
+- `ancibd_merge.sub` – merges per-batch outputs into `runs/<RUN_ID>/out/merged/` and writes `runs/<RUN_ID>/DONE`
 
-Two patterns are included:
-
-1) **Chromosome-parallel** (simple):
-   - one job per chromosome (`ancibd_ch.sub`)
-   - one summary job after all chrom jobs (`ancibd_summary.sub`)
-   - DAGMan is used by `ancibd-pipeline run-chrom-dag`.
-
-2) **Batchpair jobs** (preferred for scaling):
-   - one job per *(batch_i, batch_j)* pair (`ancibd_batchpair.sub`)
-   - each job runs all chromosomes in `CH_RANGE` and does its own summary
-   - one merge job after all batchpair jobs (`ancibd_merge.sub`)
-   - DAGMan is used by `ancibd-pipeline run-batch-dag`.
-
-These templates assume a shared filesystem (repo + data + runs visible on execute node).
-
-## Static DAG examples
-
-The CLI generates per-run DAG directories under `runs/<RUN_ID>/condor/...`, copies the
-relevant `.sub` templates there, and writes a DAG file next to them.
-
-The following examples illustrate the intended DAG structure.
-
-### Chromosome-parallel example (chr20 -> summary)
-
-```dag
-# Variables provided at submit time:
-#   ROOT      : absolute path to repo root on shared FS
-#   RUNS_ROOT : absolute runs root (matches config/local.env)
-#   RUN_ID    : unique id (created before submission)
-
-JOB CH20 ancibd_ch.sub
-VARS CH20 ROOT="$(ROOT)" RUNS_ROOT="$(RUNS_ROOT)" RUN_ID="$(RUN_ID)" CH="20"
-
-JOB SUM ancibd_summary.sub
-VARS SUM ROOT="$(ROOT)" RUNS_ROOT="$(RUNS_ROOT)" RUN_ID="$(RUN_ID)" CH_RANGE="20-20"
-
-PARENT CH20 CHILD SUM
-```
-
-### Batchpair example (batchpairs -> merge)
-
-```dag
-JOB BATCH ancibd_batchpair.sub
-VARS BATCH ROOT="$(ROOT)" RUNS_ROOT="$(RUNS_ROOT)" RUN_ID="$(RUN_ID)" CH_RANGE="1-22"
-
-JOB MERGE ancibd_merge.sub
-VARS MERGE ROOT="$(ROOT)" RUNS_ROOT="$(RUNS_ROOT)" RUN_ID="$(RUN_ID)"
-
-PARENT BATCH CHILD MERGE
-```
+All templates assume the pipeline is started from a configured repo checkout and that `config/local.env` is valid.
