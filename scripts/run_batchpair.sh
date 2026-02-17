@@ -17,6 +17,15 @@ RUN_DIR="$RUNS_ROOT/$RUN_ID"
 mkdir -p "$RUN_DIR"/{meta,work,out,logs}
 "$ROOT/scripts/write_manifest.sh"
 
+# Run-level overrides written by ./ancibd-pipeline prod.
+OPTIONS_FILE="$RUN_DIR/meta/options.env"
+if [[ -f "$OPTIONS_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$OPTIONS_FILE"
+fi
+PCOL="${PCOL:-AF_ALL}"
+PCOL="${PCOL^^}"
+
 # Ensure we have the global IID list.
 if [[ ! -s "$RUN_DIR/meta/iids.txt" ]]; then
   "$ROOT/scripts/make_iid_list.sh" >/dev/null
@@ -54,46 +63,33 @@ python3 "$ROOT/scripts/make_batch_plan.py" \
 [[ -s "$IID_FILE" ]] || die "Missing IID file: $IID_FILE"
 [[ -s "$PAIR_FILE" ]] || die "Missing pair file: $PAIR_FILE"
 
-# Prepare static per-ch inputs
-DATA_ROOT_NORM="$(data_root_norm)"
 HDF5_ROOT_NORM="$(hdf5_root_norm)"
-
-[[ -f "$MAP_PATH" ]] || die "Missing map: $MAP_PATH"
-MAP_REL="$(rel_under_data "$MAP_PATH")"
 
 # Iterate chromosomes (usually 1-22; demo is 20-20)
 read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE_RUN")
 
 for ((ch=CH_START; ch<=CH_END; ch++)); do
   H5_PATH="$(tpl "$HDF5_TEMPLATE" "$ch")"
-  MARKER_PATH="$(tpl "$MARKER_TEMPLATE" "$ch")"
-  AF_PATH="$(tpl "$AF_TEMPLATE" "$ch")"
-
-  [[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${ch}: $H5_PATH (build it first: ancibd-pipeline build-hdf5 ${CH_RANGE_RUN})"
-  [[ -f "$MARKER_PATH" ]] || die "Missing markers: $MARKER_PATH"
-  [[ -f "$AF_PATH" ]] || die "Missing AF: $AF_PATH"
+  [[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${ch}: $H5_PATH (build it first: ./ancibd-pipeline build-hdf5 ${CH_RANGE_RUN})"
 
   H5_REL="$(rel_under_hdf5 "$H5_PATH")"
-  MARKER_REL="$(rel_under_data "$MARKER_PATH")"
-  AF_REL="$(rel_under_data "$AF_PATH")"
 
   apptainer exec --cleanenv \
-    --bind "$DATA_ROOT_NORM:/work/data:ro" \
+    --bind "$ROOT:/work/repo:ro" \
     --bind "$HDF5_ROOT_NORM:/work/hdf5:ro" \
     --bind "$RUN_DIR:/work/run" \
     --pwd /work \
     "$SIF_IMAGE" \
-    ancIBD-run \
+    python3 /work/repo/scripts/call_ibd_chrom.py \
       --h5 "/work/hdf5/$H5_REL" \
       --ch "$ch" \
-      --out "/work/run/work/$BATCH_TAG" \
-      --marker_path "/work/data/$MARKER_REL" \
-      --map_path "/work/data/$MAP_REL" \
-      --af_path "/work/data/$AF_REL" \
+      --out-dir "/work/run/work/$BATCH_TAG" \
       --prefix "$PREFIX" \
-      --iid "/work/run/work/plans/${BATCH_TAG}.iids" \
-      --pair "/work/run/work/plans/${BATCH_TAG}.pairs" \
+      --pcol "$PCOL" \
+      --iids-file "/work/run/work/plans/${BATCH_TAG}.iids" \
+      --pairs-file "/work/run/work/plans/${BATCH_TAG}.pairs" \
     >"$LOG_DIR/ch${ch}.out" 2>"$LOG_DIR/ch${ch}.err"
+
 done
 
 # Summarise this batch-pair across chromosomes.

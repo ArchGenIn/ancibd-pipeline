@@ -9,43 +9,44 @@ CH="${1:?usage: run_chrom.sh <CH>}"
 
 RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
-
 [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
 
-mkdir -p "$RUN_DIR"/{work,out,logs}
+mkdir -p "$RUN_DIR"/{meta,work,out,logs}
 "$ROOT/scripts/write_manifest.sh"
 
-# Inputs
-H5_PATH="$(tpl "$HDF5_TEMPLATE" "$CH")"
-MARKER_PATH="$(tpl "$MARKER_TEMPLATE" "$CH")"
-AF_PATH="$(tpl "$AF_TEMPLATE" "$CH")"
+# Run-level overrides written by ./ancibd-pipeline baseline/prod.
+OPTIONS_FILE="$RUN_DIR/meta/options.env"
+if [[ -f "$OPTIONS_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$OPTIONS_FILE"
+fi
+PCOL="${PCOL:-AF_ALL}"
+PCOL="${PCOL^^}"
 
-[[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${CH}: $H5_PATH (build it first: ancibd-pipeline build-hdf5 ${CH}-${CH})"
-[[ -f "$MARKER_PATH" ]] || die "Missing markers: $MARKER_PATH"
-[[ -f "$AF_PATH" ]] || die "Missing AF: $AF_PATH"
-[[ -f "$MAP_PATH" ]] || die "Missing map: $MAP_PATH"
+# Ensure IID list exists.
+if [[ ! -s "$RUN_DIR/meta/iids.txt" ]]; then
+  "$ROOT/scripts/make_iid_list.sh" >/dev/null
+fi
+
+H5_PATH="$(tpl "$HDF5_TEMPLATE" "$CH")"
+[[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${CH}: $H5_PATH (build it first: ./ancibd-pipeline build-hdf5 ${CH_RANGE:-1-22})"
 
 DATA_ROOT_NORM="$(data_root_norm)"
 HDF5_ROOT_NORM="$(hdf5_root_norm)"
 
 H5_REL="$(rel_under_hdf5 "$H5_PATH")"
-MARKER_REL="$(rel_under_data "$MARKER_PATH")"
-MAP_REL="$(rel_under_data "$MAP_PATH")"
-AF_REL="$(rel_under_data "$AF_PATH")"
 
-# Bind DATA + HDF5 read-only; bind run dir writable
 apptainer exec --cleanenv \
-  --bind "$DATA_ROOT_NORM:/work/data:ro" \
+  --bind "$ROOT:/work/repo:ro" \
   --bind "$HDF5_ROOT_NORM:/work/hdf5:ro" \
   --bind "$RUN_DIR:/work/run" \
   --pwd /work \
   "$SIF_IMAGE" \
-  ancIBD-run \
+  python3 /work/repo/scripts/call_ibd_chrom.py \
     --h5 "/work/hdf5/$H5_REL" \
     --ch "$CH" \
-    --out "/work/run/work" \
-    --marker_path "/work/data/$MARKER_REL" \
-    --map_path "/work/data/$MAP_REL" \
-    --af_path "/work/data/$AF_REL" \
+    --out-dir "/work/run/work" \
     --prefix "$PREFIX" \
+    --pcol "$PCOL" \
+    --iids-file "/work/run/meta/iids.txt" \
   >"$RUN_DIR/logs/ch${CH}.out" 2>"$RUN_DIR/logs/ch${CH}.err"

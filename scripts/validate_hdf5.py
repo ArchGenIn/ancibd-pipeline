@@ -30,9 +30,12 @@ def main() -> None:
 
         with h5py.File(path, "r") as f:
             # Required-ish datasets for ancIBD.
+            #
+            # NOTE: We intentionally do *not* require an allele-frequency column here.
+            # ancIBD can calculate allele frequencies from the samples if no external AF
+            # is provided. (If present, we sanity-check that it has the right length.)
             required = [
                 "variants/POS",
-                "variants/AF_ALL",
                 "variants/MAP",
                 "calldata/GP",
             ]
@@ -40,12 +43,18 @@ def main() -> None:
                 if k not in f:
                     raise SystemExit(2)
 
+            # If any AF columns exist, they should match variant count.
+            n_var = f["variants/POS"].shape[0]
+            for af_key in ["variants/AF_ALL", "variants/AF_SAMPLE", "variants/RAF"]:
+                if af_key in f and f[af_key].shape[0] != n_var:
+                    raise SystemExit(2)
+
             # Samples are typically stored as a dataset called "samples".
             if "samples" not in f:
                 raise SystemExit(2)
 
             # Very small sanity checks.
-            if f["variants/POS"].shape[0] == 0:
+            if n_var == 0:
                 raise SystemExit(2)
             if f["calldata/GP"].shape[0] == 0:
                 raise SystemExit(2)

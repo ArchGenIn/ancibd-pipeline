@@ -22,25 +22,41 @@ usage() {
 Usage:
   ./ancibd-pipeline <command> [args...]
 
+Chromosome range resolution (all commands that accept CH_RANGE):
+  1) positional CH_RANGE argument (e.g. 1-22)
+  2) CH_RANGE environment variable
+  3) CH_RANGE in config/local.env
+  4) fallback 1-22
+
 Core workflow:
-  baseline [CH_RANGE]
+  baseline [CH_RANGE] [--pcol AF_ALL|RAF]
       Dumb, slow, reference mode.
-      Runs ancIBD per chromosome for CH_RANGE (default: CH_RANGE env or 1-22),
-      then runs ancIBD-summary.
+      Runs ancIBD per chromosome for CH_RANGE, then runs ancIBD-summary.
       Outputs: runs/<RUN_ID>/out/merged/{ch_all.tsv,ibd_ind.tsv}
       Requires RUN_ID.
 
-  prod [CH_RANGE]
+  prod [CH_RANGE] [--pcol AF_ALL|RAF]
       Concurrent production mode (batchpairs + merge) using HTCondor DAGMan.
       Outputs: runs/<RUN_ID>/out/merged/{ch_all.tsv,ibd_ind.tsv}
       Requires RUN_ID.
 
+Allele-frequency modes:
+  --pcol AF_ALL (default)
+      Use *sample* allele frequencies stored in the HDF5 at variants/AF_ALL.
+
+  --pcol RAF
+      Use *reference* allele frequencies stored in the HDF5 at variants/RAF.
+      This requires building HDF5s with --with-raf.
+
 Inputs:
-  build-hdf5 [CH_RANGE] [--force]
+  build-hdf5 [CH_RANGE] [--force] [--with-raf] [--raf-path PATH]
       Build per-chromosome HDF5 inputs under HDF5_ROOT.
       Does NOT require RUN_ID.
+      If --with-raf is given, per-chrom reference AF TSVs are merged into
+      variants/RAF (default template from config/local.env: RAF_TEMPLATE or AF_TEMPLATE).
+      Use --raf-path to override that template (may include {CH}).
 
-  build-hdf5-condor [CH_RANGE] [--force]
+  build-hdf5-condor [CH_RANGE] [--force] [--with-raf] [--raf-path PATH]
       Same as build-hdf5, but submits one job per chromosome via HTCondor.
       Does NOT require RUN_ID.
 
@@ -61,6 +77,40 @@ Notes:
 USAGE
 }
 
+normalize_pcol() {
+  local v="$1"
+  v="${v^^}"
+  case "$v" in
+    AF_ALL|AFALL|AF) echo "AF_ALL" ;;
+    RAF) echo "RAF" ;;
+    *) die "Invalid --pcol value: $1 (expected AF_ALL or RAF)" ;;
+  esac
+}
+
+choose_ch_range() {
+  # Args: <cli> <env> <cfg>
+  local cli="$1" env="$2" cfg="$3"
+  if [[ -n "$cli" ]]; then
+    echo "$cli"
+  elif [[ -n "$env" ]]; then
+    echo "$env"
+  elif [[ -n "$cfg" ]]; then
+    echo "$cfg"
+  else
+    echo "1-22"
+  fi
+}
+
+write_run_options() {
+  # Persist run-level options for reproducibility and for Condor jobs.
+  # Args: <RUN_DIR> <PCOL>
+  local run_dir="$1" pcol="$2"
+  mkdir -p "$run_dir/meta"
+  {
+    echo "PCOL=$pcol"
+  } > "$run_dir/meta/options.env"
+}
+
 cmd="${1:-}"
 shift || true
 
@@ -77,47 +127,82 @@ case "$cmd" in
     ;;
 
   build-hdf5)
-    CH_RANGE="${CH_RANGE:-1-22}"
+    CH_RANGE_CLI=""
+    CH_RANGE_ENV="${CH_RANGE:-}"
     FORCE=0
-    if [[ "${1:-}" == "--force" ]]; then
-      FORCE=1
-      shift
-    elif [[ -n "${1:-}" ]]; then
-      CH_RANGE="$1"
-      shift
+    WITH_RAF=0
+    RAF_PATH_OVERRIDE=""
+
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --force)
+          FORCE=1; shift ;;
+        --with-raf)
+          WITH_RAF=1; shift ;;
+        --raf-path)
+          [[ -n "${2:-}" ]] || die "--raf-path requires a value"
+          RAF_PATH_OVERRIDE="$2"; WITH_RAF=1; shift 2 ;;
+        *)
+          if [[ "$1" =~ ^[0-9]+-[0-9]+$ ]]; then
+            CH_RANGE_CLI="$1"; shift
+          else
+            die "Unknown arg for build-hdf5: $1"
+          fi
+          ;;
+      esac
+    done
+
+    load_config
+    CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
+
+    EXTRA_ARGS=()
+    if [[ $FORCE -eq 1 ]]; then
+      EXTRA_ARGS+=(--force)
     fi
-    if [[ "${1:-}" == "--force" ]]; then
-      FORCE=1
-      shift
+    if [[ $WITH_RAF -eq 1 ]]; then
+      EXTRA_ARGS+=(--with-raf)
+      if [[ -n "$RAF_PATH_OVERRIDE" ]]; then
+        EXTRA_ARGS+=(--raf-path "$RAF_PATH_OVERRIDE")
+      fi
     fi
 
-    read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
+    read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE_USE")
     for ((ch=CH_START; ch<=CH_END; ch++)); do
-      if [[ $FORCE -eq 1 ]]; then
-        "$ROOT/scripts/build_hdf5.sh" "$ch" --force
-      else
-        "$ROOT/scripts/build_hdf5.sh" "$ch"
-      fi
+      "$ROOT/scripts/build_hdf5.sh" "$ch" "${EXTRA_ARGS[@]}"
     done
     ;;
 
   build-hdf5-condor)
-    CH_RANGE="${CH_RANGE:-1-22}"
+    CH_RANGE_CLI=""
+    CH_RANGE_ENV="${CH_RANGE:-}"
     FORCE=0
-    if [[ "${1:-}" == "--force" ]]; then
-      FORCE=1
-      shift
-    elif [[ -n "${1:-}" ]]; then
-      CH_RANGE="$1"
-      shift
-    fi
-    if [[ "${1:-}" == "--force" ]]; then
-      FORCE=1
-      shift
-    fi
+    WITH_RAF=0
+    RAF_PATH_OVERRIDE=""
+
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --force)
+          FORCE=1; shift ;;
+        --with-raf)
+          WITH_RAF=1; shift ;;
+        --raf-path)
+          [[ -n "${2:-}" ]] || die "--raf-path requires a value"
+          RAF_PATH_OVERRIDE="$2"; WITH_RAF=1; shift 2 ;;
+        *)
+          if [[ "$1" =~ ^[0-9]+-[0-9]+$ ]]; then
+            CH_RANGE_CLI="$1"; shift
+          else
+            die "Unknown arg for build-hdf5-condor: $1"
+          fi
+          ;;
+      esac
+    done
 
     load_config
     require_cmd condor_submit
+
+    CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
+
     mkdir -p "$HDF5_ROOT/logs"
 
     FORCE_ARG=""
@@ -125,28 +210,62 @@ case "$cmd" in
       FORCE_ARG="--force"
     fi
 
-    read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
+    RAF_ARGS=""
+    if [[ $WITH_RAF -eq 1 ]]; then
+      if [[ -n "$RAF_PATH_OVERRIDE" ]]; then
+        RAF_ARGS="--with-raf --raf-path $RAF_PATH_OVERRIDE"
+      else
+        RAF_ARGS="--with-raf"
+      fi
+    fi
+
+    read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE_USE")
     for ((ch=CH_START; ch<=CH_END; ch++)); do
       condor_submit \
         -append "ROOT=$ROOT" \
         -append "HDF5_ROOT=$HDF5_ROOT" \
         -append "CH=$ch" \
         -append "FORCE_ARG=$FORCE_ARG" \
+        -append "RAF_ARGS=$RAF_ARGS" \
         "$ROOT/condor/ancibd_hdf5.sub"
     done
     ;;
 
   validate-hdf5)
-    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
+    CH_RANGE_CLI="${1:-}"
+    CH_RANGE_ENV="${CH_RANGE:-}"
     shift || true
+
     load_config
-    exec "$ROOT/scripts/validate_hdf5_range.sh" "$CH_RANGE"
+    CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
+
+    exec "$ROOT/scripts/validate_hdf5_range.sh" "$CH_RANGE_USE"
     ;;
 
   baseline)
-    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
-    shift || true
+    CH_RANGE_CLI=""
+    CH_RANGE_ENV="${CH_RANGE:-}"
+
+    if [[ "${1:-}" =~ ^[0-9]+-[0-9]+$ ]]; then
+      CH_RANGE_CLI="$1"; shift
+    fi
+
+    PCOL="AF_ALL"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --pcol)
+          [[ -n "${2:-}" ]] || die "--pcol requires a value"
+          PCOL="$(normalize_pcol "$2")"; shift 2
+          ;;
+        *)
+          die "Unknown arg for baseline: $1"
+          ;;
+      esac
+    done
+
     load_config
+    CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
+
     RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
 
     RUN_DIR="$RUNS_ROOT/$RUN_ID"
@@ -160,26 +279,49 @@ case "$cmd" in
 
     mkdir -p "$RUN_DIR"/{meta,work,out,logs}
     "$ROOT/scripts/write_manifest.sh"
+    write_run_options "$RUN_DIR" "$PCOL"
 
-    read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE")
+    read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE_USE")
     for ((ch=CH_START; ch<=CH_END; ch++)); do
       "$ROOT/scripts/run_chrom.sh" "$ch"
     done
 
-    exec "$ROOT/scripts/run_summary.sh" "$CH_RANGE"
+    exec "$ROOT/scripts/run_summary.sh" "$CH_RANGE_USE"
     ;;
 
   prod)
-    CH_RANGE="${1:-${CH_RANGE:-1-22}}"
-    shift || true
+    CH_RANGE_CLI=""
+    CH_RANGE_ENV="${CH_RANGE:-}"
+
+    if [[ "${1:-}" =~ ^[0-9]+-[0-9]+$ ]]; then
+      CH_RANGE_CLI="$1"; shift
+    fi
+
+    PCOL="AF_ALL"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --pcol)
+          [[ -n "${2:-}" ]] || die "--pcol requires a value"
+          PCOL="$(normalize_pcol "$2")"; shift 2
+          ;;
+        *)
+          die "Unknown arg for prod: $1"
+          ;;
+      esac
+    done
+
     load_config
     require_cmd condor_submit_dag
+
+    CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
+
     RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
 
     RUN_DIR="$RUNS_ROOT/$RUN_ID"
     [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
     mkdir -p "$RUN_DIR"/{meta,work,out,logs,logs/condor}
     "$ROOT/scripts/write_manifest.sh"
+    write_run_options "$RUN_DIR" "$PCOL"
 
     # Ensure IID list and batchpairs exist before submitting.
     "$ROOT/scripts/make_iid_list.sh" >/dev/null
@@ -194,11 +336,11 @@ case "$cmd" in
       echo "# Auto-generated by ancibd-pipeline prod"
       echo "# Repo root: $ROOT"
       echo "# RUN_ID: $RUN_ID"
-      echo "# CH_RANGE: $CH_RANGE"
+      echo "# CH_RANGE: $CH_RANGE_USE"
       echo
 
       echo "JOB BATCH ancibd_batchpair.sub"
-      echo "VARS BATCH ROOT=\"$ROOT\" RUNS_ROOT=\"$RUNS_ROOT\" RUN_ID=\"$RUN_ID\" CH_RANGE=\"$CH_RANGE\""
+      echo "VARS BATCH ROOT=\"$ROOT\" RUNS_ROOT=\"$RUNS_ROOT\" RUN_ID=\"$RUN_ID\" CH_RANGE=\"$CH_RANGE_USE\""
       echo
 
       echo "JOB MERGE ancibd_merge.sub"
