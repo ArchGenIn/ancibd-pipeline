@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib.sh"
 load_config
 
-RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
+RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 
 # Ensure IID list exists.

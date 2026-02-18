@@ -7,7 +7,7 @@ require_cmd apptainer
 
 CH="${1:?usage: run_chrom.sh <CH>}"
 
-RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
+RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
 
@@ -31,7 +31,6 @@ fi
 H5_PATH="$(tpl "$HDF5_TEMPLATE" "$CH")"
 [[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${CH}: $H5_PATH (build it first: ./ancibd-pipeline build-hdf5 ${CH_RANGE:-1-22})"
 
-DATA_ROOT_NORM="$(data_root_norm)"
 HDF5_ROOT_NORM="$(hdf5_root_norm)"
 
 H5_REL="$(rel_under_hdf5 "$H5_PATH")"

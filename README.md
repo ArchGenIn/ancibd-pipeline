@@ -59,8 +59,7 @@ If you also want **reference allele frequencies** available at `variants/RAF`
 ./ancibd-pipeline build-hdf5 1-22 --with-raf
 ```
 
-This uses the per-chromosome AF TSV template from `config/local.env`
-(`RAF_TEMPLATE` if present, otherwise `AF_TEMPLATE`). You can override it:
+This uses the per-chromosome AF TSV template `RAF_TEMPLATE` from `config/local.env`. You can override it:
 
 ```bash
 ./ancibd-pipeline build-hdf5 1-22 --with-raf --raf-path "/path/to/v51.1_1240k_AF_ch{CH}.tsv"
@@ -125,8 +124,8 @@ When the DAG finishes, `runs/<RUN_ID>/DONE` is written and merged outputs are in
 
 ```bash
 ./scripts/compare_outputs.sh \
-  runs/<RUN_BASE>/out/merged \
-  runs/<RUN_PROD>/out/merged
+  <RUN_BASE>/out/merged \
+  <RUN_PROD>/out/merged
 ```
 
 The comparison is order-insensitive (ignores header and row order).

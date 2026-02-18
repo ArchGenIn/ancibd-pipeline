@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib.sh"
+load_config
 
 # Compare two ancIBD-summary output folders (order-insensitive).
-# Usage: compare_outputs.sh <DIR_A> <DIR_B>
+# Usage: compare_outputs.sh <RUNS_ROOT-relative DIR_A> <RUNS_ROOT-relative DIR_B>
 
 DIR_A="${1:?usage: compare_outputs.sh <DIR_A> <DIR_B>}"
 DIR_B="${2:?usage: compare_outputs.sh <DIR_A> <DIR_B>}"
 
 hash_sorted() {
   local f="$1"
-  [[ -f "$f" ]] || { echo "MISSING"; return 0; }
+  [[ -f "$f" ]] || { echo "MISSING:$f"; return 0; }
   # Ignore header and row order.
   tail -n +2 "$f" | LC_ALL=C sort | sha256sum | awk '{print $1}'
 }
 
 for name in ch_all.tsv ibd_ind.tsv; do
-  A="$DIR_A/$name"
-  B="$DIR_B/$name"
+  A="$RUNS_ROOT/$DIR_A/$name"
+  B="$RUNS_ROOT/$DIR_B/$name"
   HA="$(hash_sorted "$A")"
   HB="$(hash_sorted "$B")"
   if [[ "$HA" == "MISSING" || "$HB" == "MISSING" ]]; then

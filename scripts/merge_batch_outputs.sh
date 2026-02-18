@@ -3,8 +3,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib.sh"
 load_config
+require_cmd apptainer
 
-RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
+RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 
 [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
@@ -47,56 +48,79 @@ shopt -u nullglob
 
 mkdir -p "$OUT_BASE/merged"
 
-merge_one() {
-  local name="$1"
-  local out_path="$2"
+# Convert a host path under $RUN_DIR into a path visible inside the container.
+to_cont_path() {
+  local host_path="$1"
+  local rel="${host_path#"$RUN_DIR"/}"
+  echo "/work/run/$rel"
+}
 
-  local inputs=()
-  local d f
-  for d in "${batch_dirs[@]}"; do
-    f="$d/$name"
-    [[ -f "$f" ]] || continue
-    inputs+=("$f")
-  done
-
-  [[ ${#inputs[@]} -gt 0 ]] || die "No input files found for $name under: $OUT_BASE"
-
-  python3 "$ROOT/scripts/merge_tsvs.py" --out "$out_path" "${inputs[@]}"
-
-  # If any input has data beyond the header, the merged file must too.
-  local total_data=0
-  local lines
-  for f in "${inputs[@]}"; do
-    # Use python for universal newlines; wc -l can be misleading for \r-only.
-    lines=$(python3 - <<'P2' "$f"
+count_lines_in_container() {
+  local cont_path="$1"
+  apptainer exec --cleanenv \
+    --bind "$RUN_DIR:/work/run" \
+    --pwd /work \
+    "$SIF_IMAGE" \
+    python3 - "$cont_path" <<'PY'
 import sys
 p=sys.argv[1]
 with open(p,'r',encoding='utf-8',errors='replace',newline=None) as fh:
     n=sum(1 for _ in fh)
 print(n)
-P2
-)
+PY
+}
+
+merge_one() {
+  local name="$1"
+  local out_host="$2"
+
+  local inputs_host=()
+  local d f
+  for d in "${batch_dirs[@]}"; do
+    f="$d/$name"
+    [[ -f "$f" ]] || continue
+    inputs_host+=("$f")
+  done
+
+  [[ ${#inputs_host[@]} -gt 0 ]] || die "No input files found for $name under: $OUT_BASE"
+
+  # Build container-visible paths.
+  local out_cont
+  out_cont="$(to_cont_path "$out_host")"
+
+  local inputs_cont=()
+  local h
+  for h in "${inputs_host[@]}"; do
+    inputs_cont+=("$(to_cont_path "$h")")
+  done
+
+  # Merge inside the container (so the host only needs Apptainer).
+  apptainer exec --cleanenv \
+    --bind "$ROOT:/work/repo:ro" \
+    --bind "$RUN_DIR:/work/run" \
+    --pwd /work \
+    "$SIF_IMAGE" \
+    python3 /work/repo/scripts/merge_tsvs.py --out "$out_cont" "${inputs_cont[@]}"
+
+  # If any input has data beyond the header, the merged file must too.
+  local total_data=0
+  local lines
+  local p
+  for p in "${inputs_cont[@]}"; do
+    lines="$(count_lines_in_container "$p")"
     if [[ "$lines" -gt 1 ]]; then
       total_data=$((total_data + lines - 1))
     fi
   done
 
-  lines=$(python3 - <<'P3' "$out_path"
-import sys
-p=sys.argv[1]
-with open(p,'r',encoding='utf-8',errors='replace',newline=None) as fh:
-    n=sum(1 for _ in fh)
-print(n)
-P3
-)
-
+  lines="$(count_lines_in_container "$out_cont")"
   if [[ "$total_data" -gt 0 && "$lines" -le 1 ]]; then
     echo "ERROR: Merge produced only a header for $name, but inputs had data." >&2
     echo "Hint: check newline conventions and headers in per-batch TSVs." >&2
     exit 1
   fi
 
-  [[ -s "$out_path" ]] || die "Merged file is empty: $out_path"
+  [[ -s "$out_host" ]] || die "Merged file is empty: $out_host"
 }
 
 merge_one "ch_all.tsv" "$OUT_BASE/merged/ch_all.tsv"

@@ -9,13 +9,10 @@ pipeline-specific choices:
    either ``variants/AF_ALL`` (sample) or ``variants/RAF`` (reference)).
 
 2) Optionally, we can *add* reference allele frequencies into ``variants/RAF``
-   from a per-chromosome TSV file (the same files provided in Harald's Dropbox
-   tutorial folder).
+   from a per-chromosome TSV file.
 
 The final output is written atomically via a ``.tmp`` file.
 """
-
-from __future__ import annotations
 
 import argparse
 import csv

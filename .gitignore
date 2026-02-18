@@ -209,6 +209,7 @@ __marimo__/
 # --- ancIBD pipeline ---
 data/
 runs/
+misc/
 *.sif
 containers/*.sif
 containers/cache/

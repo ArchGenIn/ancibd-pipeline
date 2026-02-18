@@ -5,7 +5,7 @@ source "$ROOT/scripts/lib.sh"
 load_config
 require_cmd apptainer
 
-RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
+RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 
 mkdir -p "$RUN_DIR/meta" "$RUN_DIR/logs"

@@ -46,15 +46,15 @@ if [[ -f "$H5_PATH" && $FORCE -eq 0 ]]; then
   exit 0
 fi
 
-# Optional: reference allele-frequency TSV -> variants/RAF
+# Optional: per-chromosome reference allele-frequency TSV -> variants/RAF
 RAF_ARGS=()
 if [[ $WITH_RAF -eq 1 ]]; then
-  # Prefer explicit --raf-path, else config provides AF_TEMPLATE.
+  # Prefer explicit --raf-path, else use RAF_TEMPLATE from config/local.env.
   RAF_TEMPLATE_EFF="$RAF_PATH_ARG"
   if [[ -z "$RAF_TEMPLATE_EFF" ]]; then
-    RAF_TEMPLATE_EFF="${RAF_TEMPLATE:-${AF_TEMPLATE:-}}"
+    RAF_TEMPLATE_EFF="${RAF_TEMPLATE:-}"
   fi
-  [[ -n "$RAF_TEMPLATE_EFF" ]] || die "--with-raf requires RAF_TEMPLATE (or AF_TEMPLATE) in config/local.env or --raf-path"
+  [[ -n "$RAF_TEMPLATE_EFF" ]] || die "--with-raf requires RAF_TEMPLATE in config/local.env (or pass --raf-path)"
 
   RAF_PATH="$(tpl "$RAF_TEMPLATE_EFF" "$CH")"
   [[ -f "$RAF_PATH" ]] || die "Missing RAF TSV for ch${CH}: $RAF_PATH"

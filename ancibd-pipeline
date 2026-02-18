@@ -53,7 +53,7 @@ Inputs:
       Build per-chromosome HDF5 inputs under HDF5_ROOT.
       Does NOT require RUN_ID.
       If --with-raf is given, per-chrom reference AF TSVs are merged into
-      variants/RAF (default template from config/local.env: RAF_TEMPLATE or AF_TEMPLATE).
+      variants/RAF (template from config/local.env: RAF_TEMPLATE).
       Use --raf-path to override that template (may include {CH}).
 
   build-hdf5-condor [CH_RANGE] [--force] [--with-raf] [--raf-path PATH]

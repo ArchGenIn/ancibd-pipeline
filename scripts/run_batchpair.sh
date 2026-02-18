@@ -4,13 +4,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib.sh"
 load_config
 require_cmd apptainer
-require_cmd python3
 
 B1="${1:?usage: run_batchpair.sh <B1> <B2> [CH_RANGE]}"
 B2="${2:?usage: run_batchpair.sh <B1> <B2> [CH_RANGE]}"
 CH_RANGE_RUN="${3:-${CH_RANGE:-1-22}}"
 
-RUN_ID="${RUN_ID:?set RUN_ID env var (use scripts/new_run.sh)}"
+RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
 
@@ -49,19 +48,28 @@ if [[ -f "$OUT_DIR/DONE" ]]; then
   exit 0
 fi
 
-IID_FILE="$PLAN_DIR/${BATCH_TAG}.iids"
-PAIR_FILE="$PLAN_DIR/${BATCH_TAG}.pairs"
+IID_FILE_HOST="$PLAN_DIR/${BATCH_TAG}.iids"
+PAIR_FILE_HOST="$PLAN_DIR/${BATCH_TAG}.pairs"
+IID_FILE_CONT="/work/run/work/plans/${BATCH_TAG}.iids"
+PAIR_FILE_CONT="/work/run/work/plans/${BATCH_TAG}.pairs"
 
-python3 "$ROOT/scripts/make_batch_plan.py" \
-  --iids "$RUN_DIR/meta/iids.txt" \
-  --batch-size "${BATCH_SIZE:-500}" \
-  --b1 "$B1" --b2 "$B2" \
-  --out-iids "$IID_FILE" \
-  --out-pairs "$PAIR_FILE" \
+# Build the IID preload list and the pair list inside the container
+# (so the host only needs Apptainer).
+apptainer exec --cleanenv \
+  --bind "$ROOT:/work/repo:ro" \
+  --bind "$RUN_DIR:/work/run" \
+  --pwd /work \
+  "$SIF_IMAGE" \
+  python3 /work/repo/scripts/make_batch_plan.py \
+    --iids "/work/run/meta/iids.txt" \
+    --batch-size "${BATCH_SIZE:-500}" \
+    --b1 "$B1" --b2 "$B2" \
+    --out-iids "$IID_FILE_CONT" \
+    --out-pairs "$PAIR_FILE_CONT" \
   >"$LOG_DIR/plan.out" 2>"$LOG_DIR/plan.err"
 
-[[ -s "$IID_FILE" ]] || die "Missing IID file: $IID_FILE"
-[[ -s "$PAIR_FILE" ]] || die "Missing pair file: $PAIR_FILE"
+[[ -s "$IID_FILE_HOST" ]] || die "Missing IID file: $IID_FILE_HOST"
+[[ -s "$PAIR_FILE_HOST" ]] || die "Missing pair file: $PAIR_FILE_HOST"
 
 HDF5_ROOT_NORM="$(hdf5_root_norm)"
 

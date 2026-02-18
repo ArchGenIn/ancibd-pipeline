@@ -1,21 +1,13 @@
 #!/usr/bin/env python3
 """Run ancIBD for one chromosome from a prebuilt HDF5.
 
-This is the execution path used by ancibd-pipeline:
-- HDF5 building computes *sample* allele frequencies into ``variants/AF_ALL``.
-- Optional reference allele frequencies can be stored in ``variants/RAF``.
-- At run time, we choose which column ancIBD should use via ``--pcol``.
+HDF5 inputs contain sample allele frequencies at variants/AF_ALL.
+Optional reference frequencies can be stored at variants/RAF.
+Select which one ancIBD uses with --pcol (AF_ALL or RAF).
 
-We intentionally use the ancIBD Python API (``ancIBD.run.hapBLOCK_chroms``)
-so we control ``p_col`` directly and avoid the historical ``ancIBD-run`` CLI
-behavior where ``--af_path`` always maps into ``variants/AF_ALL``.
-
-The function ``hapBLOCK_chroms`` writes per-chromosome TSV output as:
-  <out-dir>/ch<CH>.tsv
-
-We then *rename* that file to match the ancIBD CLI / ancIBD-summary convention:
-  <out-dir>/<prefix>.ch<CH>.tsv
-
+We call the ancIBD Python API so we can pass p_col explicitly.
+ancIBD writes ch<CH>.tsv; we rename it to <prefix>.ch<CH>.tsv so
+ancIBD-summary can consume a folder of per-chromosome TSVs.
 """
 
 import argparse
@@ -51,7 +43,7 @@ def parse_args() -> argparse.Namespace:
         "--min-cm",
         type=float,
         default=8.0,
-        help="Minimum IBD segment length in cM (match ancIBD-run CLI default: 8).",
+        help="Minimum IBD segment length in cM (default: 8).",
     )
     return p.parse_args()
 
