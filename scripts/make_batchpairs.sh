@@ -21,11 +21,32 @@ fi
 
 NBATCH=$(( (N_IIDS + BS - 1) / BS ))
 
+batch_size() {
+  # Size of batch i (0-indexed) given N_IIDS and BS.
+  local i="$1"
+  local start=$(( i * BS ))
+  local end=$(( (i + 1) * BS ))
+  if (( end > N_IIDS )); then
+    end="$N_IIDS"
+  fi
+  echo $(( end - start ))
+}
+
 OUT="$RUN_DIR/meta/batchpairs.tsv"
 tmp="$OUT.tmp"
 {
   for ((i=0; i<NBATCH; i++)); do
+    sz_i="$(batch_size "$i")"
     for ((j=i; j<NBATCH; j++)); do
+      sz_j="$(batch_size "$j")"
+
+      # Skip within-batch jobs that cannot contain any pairs.
+      # (e.g. batch_size=1, or last batch smaller than 2)
+      if (( i == j )) && (( sz_i < 2 )); then
+        continue
+      fi
+
+      # Cross-batch jobs always have at least 1 pair because batches are non-empty.
       echo -e "${i}\t${j}"
     done
   done

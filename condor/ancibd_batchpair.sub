@@ -14,4 +14,4 @@ error  = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/batchpair.$(Cluster).$(Process).err
 
 notification = never
 
-queue B1, B2 from $(RUNS_ROOT)/$(RUN_ID)/meta/batchpairs.tsv
+queue

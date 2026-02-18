@@ -25,4 +25,11 @@ apptainer exec --cleanenv \
     --out "/work/run/out/merged" \
   >"$RUN_DIR/logs/summary.out" 2>"$RUN_DIR/logs/summary.err"
 
+if [[ ! -f "$RUN_DIR/out/merged/ch_all.tsv" || ! -f "$RUN_DIR/out/merged/ibd_ind.tsv" ]]; then
+  echo "ERROR: ancIBD-summary did not produce expected outputs in: $RUN_DIR/out/merged" >&2
+  echo "  Expected: ch_all.tsv and ibd_ind.tsv" >&2
+  echo "  See: $RUN_DIR/logs/summary.err" >&2
+  exit 1
+fi
+
 date -u +%Y-%m-%dT%H:%M:%SZ > "$RUN_DIR/DONE"

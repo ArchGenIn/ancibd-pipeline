@@ -50,20 +50,51 @@ mkdir -p "$OUT_BASE/merged"
 merge_one() {
   local name="$1"
   local out_path="$2"
-  local first=1
-  : > "$out_path"
 
-  local f
-  for f in "${batch_dirs[@]}"/"$name"; do
+  local inputs=()
+  local d f
+  for d in "${batch_dirs[@]}"; do
+    f="$d/$name"
     [[ -f "$f" ]] || continue
-    if [[ $first -eq 1 ]]; then
-      cat "$f" >> "$out_path"
-      first=0
-    else
-      # Skip header
-      tail -n +2 "$f" >> "$out_path"
+    inputs+=("$f")
+  done
+
+  [[ ${#inputs[@]} -gt 0 ]] || die "No input files found for $name under: $OUT_BASE"
+
+  python3 "$ROOT/scripts/merge_tsvs.py" --out "$out_path" "${inputs[@]}"
+
+  # If any input has data beyond the header, the merged file must too.
+  local total_data=0
+  local lines
+  for f in "${inputs[@]}"; do
+    # Use python for universal newlines; wc -l can be misleading for \r-only.
+    lines=$(python3 - <<'P2' "$f"
+import sys
+p=sys.argv[1]
+with open(p,'r',encoding='utf-8',errors='replace',newline=None) as fh:
+    n=sum(1 for _ in fh)
+print(n)
+P2
+)
+    if [[ "$lines" -gt 1 ]]; then
+      total_data=$((total_data + lines - 1))
     fi
   done
+
+  lines=$(python3 - <<'P3' "$out_path"
+import sys
+p=sys.argv[1]
+with open(p,'r',encoding='utf-8',errors='replace',newline=None) as fh:
+    n=sum(1 for _ in fh)
+print(n)
+P3
+)
+
+  if [[ "$total_data" -gt 0 && "$lines" -le 1 ]]; then
+    echo "ERROR: Merge produced only a header for $name, but inputs had data." >&2
+    echo "Hint: check newline conventions and headers in per-batch TSVs." >&2
+    exit 1
+  fi
 
   [[ -s "$out_path" ]] || die "Merged file is empty: $out_path"
 }

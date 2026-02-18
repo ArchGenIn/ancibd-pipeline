@@ -103,5 +103,13 @@ apptainer exec --cleanenv \
     --out "/work/run/out/$BATCH_TAG" \
   >"$LOG_DIR/summary.out" 2>"$LOG_DIR/summary.err"
 
+# Sanity: ancIBD-summary should have produced the two standard outputs.
+if [[ ! -f "$OUT_DIR/ch_all.tsv" || ! -f "$OUT_DIR/ibd_ind.tsv" ]]; then
+  echo "ERROR: ancIBD-summary did not produce expected outputs in: $OUT_DIR" >&2
+  echo "  Expected: ch_all.tsv and ibd_ind.tsv" >&2
+  echo "  See: $LOG_DIR/summary.err" >&2
+  exit 1
+fi
+
 touch "$OUT_DIR/DONE"
 echo "DONE: $BATCH_TAG"
