@@ -19,6 +19,14 @@ if [[ -f "$PAIRS_FILE" ]]; then
   bad=0
   while IFS=$'\t' read -r b1 b2 rest; do
     [[ -n "${b1:-}" ]] || continue
+
+    # Be tolerant to an optional header, but otherwise validate.
+    if [[ "$b1" == "b1" && "$b2" == "b2" ]]; then
+      continue
+    fi
+    [[ "$b1" =~ ^[0-9]+$ ]] || die "Invalid B1 in $PAIRS_FILE: '$b1'"
+    [[ "$b2" =~ ^[0-9]+$ ]] || die "Invalid B2 in $PAIRS_FILE: '$b2'"
+
     tag="$(printf 'b%03d_b%03d' "$b1" "$b2")"
     d="$OUT_BASE/$tag"
     if [[ ! -f "$d/DONE" ]]; then

@@ -97,8 +97,8 @@ This runs ancIBD per chromosome and then runs `ancIBD-summary`.
 
 `prod` submits a DAGMan workflow:
 
-- one **batchpair** submit node (queues all `(batch_i,batch_j)` jobs)
-- then a **merge** job
+- one **batchpair** job per `(batch_i,batch_j)` node
+- then a single **merge** job
 
 ```bash
 RUN_ID="$(./ancibd-pipeline new-run prod)"; export RUN_ID
@@ -126,6 +126,8 @@ When the DAG finishes, `runs/<RUN_ID>/DONE` is written and merged outputs are in
 ./scripts/compare_outputs.sh \
   <RUN_BASE>/out/merged \
   <RUN_PROD>/out/merged
+
+# You can also pass absolute paths or repo-root-relative paths (e.g. runs/<RUN_ID>/...).
 ```
 
 The comparison is order-insensitive (ignores header and row order).

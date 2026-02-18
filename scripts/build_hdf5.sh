@@ -64,6 +64,10 @@ fi
 
 TMP_H5="$H5_PATH.tmp"
 
+# Ensure target directories exist (support templates that include subdirectories).
+mkdir -p "$(dirname "$H5_PATH")"
+mkdir -p "$(dirname "$VCF_1240K_PATH")"
+
 # For reproducibility: log where we read from and write to.
 echo "[build_hdf5] Building HDF5 for ch$CH"
 echo "[build_hdf5] Input  : $VCF_PATH"
@@ -76,6 +80,10 @@ VCF_REL="$(rel_under_data "$VCF_PATH")"
 MARKER_REL="$(rel_under_data "$MARKER_PATH")"
 MAP_REL="$(rel_under_data "$MAP_PATH")"
 
+H5_REL="$(rel_under_hdf5 "$H5_PATH")"
+VCF_1240K_REL="$(rel_under_hdf5 "$VCF_1240K_PATH")"
+TMP_H5_REL="$(rel_under_hdf5 "$TMP_H5")"
+
 # Bind roots into the container.
 apptainer exec --cleanenv \
   --bind "$ROOT:/work/repo:ro" \
@@ -87,16 +95,15 @@ apptainer exec --cleanenv \
     --in-vcf "/work/data/$VCF_REL" \
     --marker "/work/data/$MARKER_REL" \
     --map "/work/data/$MAP_REL" \
-    --out-vcf "/work/hdf5/$(basename "$VCF_1240K_PATH")" \
-    --out-h5 "/work/hdf5/$(basename "$H5_PATH")" \
-    --tmp-h5 "/work/hdf5/$(basename "$TMP_H5")" \
+    --out-vcf "/work/hdf5/$VCF_1240K_REL" \
+    --out-h5 "/work/hdf5/$H5_REL" \
+    --tmp-h5 "/work/hdf5/$TMP_H5_REL" \
     --ch "$CH" \
     --col-sample-af AF_ALL \
     "${RAF_ARGS[@]}" \
   >"$HDF5_ROOT/logs/hdf5_ch${CH}.out" 2>"$HDF5_ROOT/logs/hdf5_ch${CH}.err"
 
-# Validate via a lightweight host-side check inside the container.
-H5_REL="$(rel_under_hdf5 "$H5_PATH")"
+# Validate via a lightweight check inside the container.
 if apptainer exec --cleanenv \
     --bind "$ROOT:/work/repo:ro" \
     --bind "$HDF5_ROOT_NORM:/work/hdf5:ro" \
