@@ -42,8 +42,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--min-cm",
         type=float,
-        default=8.0,
-        help="Minimum IBD segment length in cM (default: 8).",
+        default=6.0,
+        help="Minimum IBD segment length in cM (default: 6).",
     )
     return p.parse_args()
 
@@ -149,8 +149,17 @@ def main() -> None:
         output=False,
         prefix_out="",
         logfile=False,
+        l_model="h5",
+        e_model="haploid_gl2",
+        h_model="FiveStateScaled",
+        t_model="standard",
         p_col=pcol,
+        ibd_in=1,
+        ibd_out=10,
+        ibd_jump=400,
         min_cm=float(args.min_cm),
+        cutoff_post=0.99,
+        max_gap=0.0075,
     )
 
     tmp_path = out_dir / f"ch{int(args.ch)}.tsv"
