@@ -34,8 +34,8 @@ mkdir -p "$HDF5_ROOT" "$HDF5_ROOT/logs"
 
 VCF_PATH="$(tpl "$VCF_TEMPLATE" "$CH")"
 MARKER_PATH="$(tpl "$MARKER_TEMPLATE" "$CH")"
-H5_PATH="$(tpl "$HDF5_TEMPLATE" "$CH")"
-VCF_1240K_PATH="$(tpl "$VCF_1240K_TEMPLATE" "$CH")"
+H5_PATH="$(h5_path_for_ch "$CH")"
+VCF_1240K_PATH="$(vcf_1240k_path_for_ch "$CH")"
 
 [[ -f "$VCF_PATH" ]] || die "Missing VCF: $VCF_PATH"
 [[ -f "$MARKER_PATH" ]] || die "Missing marker list: $MARKER_PATH"

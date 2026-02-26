@@ -19,6 +19,22 @@ load_config() {
   [[ -n "${DATA_ROOT:-}" ]] || die "DATA_ROOT not set in config/local.env"
   [[ -n "${HDF5_ROOT:-}" ]] || die "HDF5_ROOT not set in config/local.env"
   [[ -n "${RUNS_ROOT:-}" ]] || die "RUNS_ROOT not set in config/local.env"
+
+  # Backwards-compatible defaults for HDF5/VCF naming components.
+  # Users may either set explicit *_TEMPLATE variables with {CH}, or configure
+  # the naming via prefix/suffix/ch-label components.
+  if [[ -z "${HDF5_PREFIX+x}" ]]; then
+    if [[ -n "${PREFIX:-}" ]]; then
+      HDF5_PREFIX="${PREFIX}."
+    else
+      HDF5_PREFIX=""
+    fi
+  fi
+  HDF5_CH_LABEL="${HDF5_CH_LABEL:-ch}"
+  HDF5_SUFFIX="${HDF5_SUFFIX:-}"
+  HDF5_EXT="${HDF5_EXT:-.h5}"
+
+  VCF_1240K_SUFFIX="${VCF_1240K_SUFFIX:-.1240k.vcf.gz}"
 }
 
 tpl() {
@@ -71,4 +87,30 @@ parse_ch_range() {
   local a="${r%-*}" b="${r#*-}"
   (( a >= 1 && b >= a && b <= 22 )) || die "Chromosome range out of bounds (1-22): $r"
   echo "$a $b"
+}
+
+h5_path_for_ch() {
+  # Resolve the expected host-side HDF5 path for a chromosome.
+  # If HDF5_TEMPLATE is set (contains {CH}), it is used.
+  # Otherwise, the path is assembled as:
+  #   $HDF5_ROOT/${HDF5_PREFIX}${HDF5_CH_LABEL}${CH}${HDF5_SUFFIX}${HDF5_EXT}
+  local ch="$1"
+  if [[ -n "${HDF5_TEMPLATE:-}" ]]; then
+    tpl "$HDF5_TEMPLATE" "$ch"
+  else
+    echo "${HDF5_ROOT%/}/${HDF5_PREFIX}${HDF5_CH_LABEL}${ch}${HDF5_SUFFIX}${HDF5_EXT}"
+  fi
+}
+
+vcf_1240k_path_for_ch() {
+  # Resolve the expected host-side filtered VCF path for a chromosome.
+  # If VCF_1240K_TEMPLATE is set (contains {CH}), it is used.
+  # Otherwise, the path is assembled similarly to HDF5s:
+  #   $HDF5_ROOT/${HDF5_PREFIX}${HDF5_CH_LABEL}${CH}${HDF5_SUFFIX}${VCF_1240K_SUFFIX}
+  local ch="$1"
+  if [[ -n "${VCF_1240K_TEMPLATE:-}" ]]; then
+    tpl "$VCF_1240K_TEMPLATE" "$ch"
+  else
+    echo "${HDF5_ROOT%/}/${HDF5_PREFIX}${HDF5_CH_LABEL}${ch}${HDF5_SUFFIX}${VCF_1240K_SUFFIX}"
+  fi
 }

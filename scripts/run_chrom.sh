@@ -28,7 +28,7 @@ if [[ ! -s "$RUN_DIR/meta/iids.txt" ]]; then
   "$ROOT/scripts/make_iid_list.sh" >/dev/null
 fi
 
-H5_PATH="$(tpl "$HDF5_TEMPLATE" "$CH")"
+H5_PATH="$(h5_path_for_ch "$CH")"
 [[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${CH}: $H5_PATH (build it first: ./ancibd-pipeline build-hdf5 ${CH_RANGE:-1-22})"
 
 HDF5_ROOT_NORM="$(hdf5_root_norm)"

@@ -11,7 +11,6 @@ This tool takes a global IID list (one per line) and a batch definition, and wri
 
 Batches are 0-indexed.
 """
-
 import argparse
 from pathlib import Path
 

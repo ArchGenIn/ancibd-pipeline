@@ -13,7 +13,6 @@ pipeline-specific choices:
 
 The final output is written atomically via a ``.tmp`` file.
 """
-
 import argparse
 import csv
 from pathlib import Path

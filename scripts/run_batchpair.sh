@@ -77,7 +77,7 @@ HDF5_ROOT_NORM="$(hdf5_root_norm)"
 read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE_RUN")
 
 for ((ch=CH_START; ch<=CH_END; ch++)); do
-  H5_PATH="$(tpl "$HDF5_TEMPLATE" "$ch")"
+  H5_PATH="$(h5_path_for_ch "$ch")"
   [[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${ch}: $H5_PATH (build it first: ./ancibd-pipeline build-hdf5 ${CH_RANGE_RUN})"
 
   H5_REL="$(rel_under_hdf5 "$H5_PATH")"

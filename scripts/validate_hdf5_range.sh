@@ -15,7 +15,7 @@ HDF5_ROOT_NORM="$(hdf5_root_norm)"
 
 fail=0
 for ((ch=CH_START; ch<=CH_END; ch++)); do
-  h5_path="$(tpl "$HDF5_TEMPLATE" "$ch")"
+  h5_path="$(h5_path_for_ch "$ch")"
   if [[ ! -f "$h5_path" ]]; then
     echo "MISSING: ch${ch} -> $h5_path" >&2
     fail=1

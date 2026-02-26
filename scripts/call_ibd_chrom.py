@@ -9,7 +9,6 @@ We call the ancIBD Python API so we can pass p_col explicitly.
 ancIBD writes ch<CH>.tsv; we rename it to <prefix>.ch<CH>.tsv so
 ancIBD-summary can consume a folder of per-chromosome TSVs.
 """
-
 import argparse
 from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
@@ -17,7 +16,14 @@ from typing import Iterable, List, Sequence, Tuple
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--h5", required=True, help="Path to chromosome HDF5 (e.g. prefix.ch20.h5)")
+    p.add_argument(
+        "--h5",
+        required=True,
+        help=(
+            "Path to chromosome HDF5. The filename can be arbitrary as long as it "
+            "contains the data for the requested chromosome."
+        ),
+    )
     p.add_argument("--ch", required=True, type=int, help="Chromosome number (1-22)")
     p.add_argument("--out-dir", required=True, help="Output directory to write <prefix>.ch<CH>.tsv")
     p.add_argument("--prefix", required=True, help="Output prefix (e.g. example_hazelton)")
@@ -81,15 +87,29 @@ def read_pairs(pairs_file: str) -> List[Tuple[str, str]]:
     return pairs
 
 
-def derive_folder_in(h5_path: Path, ch: int) -> str:
-    """Return folder_in prefix such that folder_in + f"{ch}.h5" equals h5_path."""
-    suffix = f"{ch}.h5"
-    s = str(h5_path)
-    if not s.endswith(suffix):
-        raise SystemExit(
-            f"HDF5 path does not end with expected suffix '{suffix}': {h5_path}"
-        )
-    return s[: -len(suffix)]
+def prepare_folder_in(h5_path: Path, ch: int, *, tmp_root: Path) -> tuple[str, Path]:
+    """Prepare an ancIBD-compatible folder_in prefix for an arbitrary HDF5 filename.
+
+    ancIBD's hapBLOCK_chroms expects a *prefix* (folder_in) and constructs the input
+    file as: folder_in + f"{ch}.h5".
+
+    If the provided HDF5 path does not match that naming scheme, we create a
+    temporary symlink that does. This lets the pipeline use HDF5s named like:
+      chr2.merged.1240k.20250825.h5
+    without renaming them.
+    """
+    import tempfile
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="ancibd_h5link_", dir=str(tmp_root)))
+    # Use a prefix that yields a file name ending in "{ch}.h5".
+    prefix = str(tmpdir / "h5.")
+    link_path = Path(f"{prefix}{ch}.h5")
+    try:
+        # Absolute symlink is fine inside the container.
+        link_path.symlink_to(h5_path.resolve())
+    except FileExistsError:
+        pass
+    return prefix, tmpdir
 
 
 def ensure_pcol_exists(h5_path: Path, pcol: str) -> None:
@@ -131,7 +151,8 @@ def main() -> None:
     # Import inside main so missing ancIBD gives a clean error.
     from ancIBD.run import hapBLOCK_chroms  # type: ignore
 
-    folder_in = derive_folder_in(h5_path, args.ch)
+    # Prepare an ancIBD folder_in prefix regardless of HDF5 naming.
+    folder_in, tmpdir = prepare_folder_in(h5_path, args.ch, tmp_root=out_dir)
 
     iids = read_iids(args.iids_file)
     run_iids = read_pairs(args.pairs_file)
@@ -140,27 +161,36 @@ def main() -> None:
     # NOTE: hapBLOCK_chroms always writes: <folder_out>/ch<CH>.tsv
     # (prefix_out is treated as a *subfolder* by ancIBD). We keep prefix_out
     # empty and rename the produced file to match the ancIBD CLI convention.
-    hapBLOCK_chroms(
-        folder_in=folder_in,
-        iids=iids,
-        run_iids=run_iids,
-        ch=int(args.ch),
-        folder_out=str(out_dir),
-        output=False,
-        prefix_out="",
-        logfile=False,
-        l_model="h5",
-        e_model="haploid_gl2",
-        h_model="FiveStateScaled",
-        t_model="standard",
-        p_col=pcol,
-        ibd_in=1,
-        ibd_out=10,
-        ibd_jump=400,
-        min_cm=float(args.min_cm),
-        cutoff_post=0.99,
-        max_gap=0.0075,
-    )
+    try:
+        hapBLOCK_chroms(
+            folder_in=folder_in,
+            iids=iids,
+            run_iids=run_iids,
+            ch=int(args.ch),
+            folder_out=str(out_dir),
+            output=False,
+            prefix_out="",
+            logfile=False,
+            l_model="h5",
+            e_model="haploid_gl2",
+            h_model="FiveStateScaled",
+            t_model="standard",
+            p_col=pcol,
+            ibd_in=1,
+            ibd_out=10,
+            ibd_jump=400,
+            min_cm=float(args.min_cm),
+            cutoff_post=0.99,
+            max_gap=0.0075,
+        )
+    finally:
+        # Best-effort cleanup of the temporary symlink directory.
+        try:
+            for p in tmpdir.iterdir():
+                p.unlink(missing_ok=True)  # type: ignore[arg-type]
+            tmpdir.rmdir()
+        except Exception:
+            pass
 
     tmp_path = out_dir / f"ch{int(args.ch)}.tsv"
     final_path = out_dir / f"{args.prefix}.ch{int(args.ch)}.tsv"

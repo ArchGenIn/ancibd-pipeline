@@ -34,6 +34,34 @@ cp config/example.env config/local.env
 ./containers/build.sh
 ```
 
+## IID list generation
+
+ancIBD requires a consistent list of sample IDs (IIDs) to define batches.
+This pipeline writes the IID list to:
+
+- `runs/<RUN_ID>/meta/iids.txt`
+
+The IID list is extracted from the **HDF5** input (dataset: `samples`).
+This supports workflows where you start from prebuilt HDF5s and do not have
+the original VCF/BCF inputs available.
+
+If you change the HDF5 inputs, regenerate the IID list by deleting
+`runs/<RUN_ID>/meta/iids.txt` and re-running a command (baseline/prod) that
+needs it.
+
+## HDF5 naming
+
+By default, the scripts locate per-chromosome HDF5s under `HDF5_ROOT` using
+the naming components in `config/local.env`:
+
+`$HDF5_ROOT/${HDF5_PREFIX}${HDF5_CH_LABEL}<CH>${HDF5_SUFFIX}${HDF5_EXT}`
+
+This lets you work with names like `chr2.merged.1240k.20250825.h5` without
+renaming files.
+
+If you prefer, you can instead set `HDF5_TEMPLATE` (and optionally
+`VCF_1240K_TEMPLATE`) explicitly with a `{CH}` placeholder.
+
 ## Local cloud emulation (HTCondor + shared filesystem)
 
 If you want to emulate a shared-filesystem HTCondor cloud locally (e.g. via Multipass)

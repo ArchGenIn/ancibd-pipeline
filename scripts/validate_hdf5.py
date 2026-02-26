@@ -8,7 +8,6 @@ Exit codes:
 This is intentionally conservative: if anything looks off, we return 2 so the
 wrapper can rebuild the file.
 """
-
 import argparse
 from pathlib import Path
 

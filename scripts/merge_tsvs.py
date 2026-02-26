@@ -14,7 +14,6 @@ Outputs:
 - Writes the merged TSV to --out.
 - Prints a small stats line to stderr.
 """
-
 import argparse
 import sys
 from pathlib import Path
