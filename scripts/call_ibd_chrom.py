@@ -106,7 +106,7 @@ def prepare_folder_in(h5_path: Path, ch: int, *, tmp_root: Path) -> tuple[str, P
     link_path = Path(f"{prefix}{ch}.h5")
     try:
         # Absolute symlink is fine inside the container.
-        link_path.symlink_to(h5_path.resolve())
+        link_path.symlink_to(h5_path)
     except FileExistsError:
         pass
     return prefix, tmpdir
@@ -152,7 +152,9 @@ def main() -> None:
     from ancIBD.run import hapBLOCK_chroms  # type: ignore
 
     # Prepare an ancIBD folder_in prefix regardless of HDF5 naming.
-    folder_in, tmpdir = prepare_folder_in(h5_path, args.ch, tmp_root=out_dir)
+    import os
+    tmp_root = Path(os.environ.get("TMPDIR") or "/tmp")
+    folder_in, tmpdir = prepare_folder_in(h5_path, args.ch, tmp_root=tmp_root)
 
     iids = read_iids(args.iids_file)
     run_iids = read_pairs(args.pairs_file)
