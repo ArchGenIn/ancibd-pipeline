@@ -352,9 +352,15 @@ case "$cmd" in
         node="BP_$(printf 'b%03d_b%03d' "$b1" "$b2")"
         bp_nodes+=("$node")
         echo "JOB $node ancibd_batchpair.sub"
-        echo "VARS $node ROOT=\"$ROOT\" RUNS_ROOT=\"$RUNS_ROOT\" RUN_ID=\"$RUN_ID\" CH_RANGE=\"$CH_RANGE_USE\" B1=\"$b1\" B2=\"$b2\""
+        echo "CATEGORY $node BP"
+        echo "VARS $node ROOT=\"$ROOT\" RUNS_ROOT=\"$RUNS_ROOT\" RUN_ID=\"$RUN_ID\" CH_RANGE=\"$CH_RANGE_USE\" B1=\"$b1\" B2=\"$b2\" REQ_CPUS=\"$BP_REQUEST_CPUS\" REQ_MEM=\"$BP_REQUEST_MEMORY\" REQ_DISK=\"$BP_REQUEST_DISK\""
         echo
       done < "$PAIRS_FILE"
+
+      if [[ "${BP_MAXJOBS:-0}" != "0" && -n "${BP_MAXJOBS:-}" ]]; then
+        echo "MAXJOBS BP $BP_MAXJOBS"
+        echo
+      fi
 
       echo "JOB MERGE ancibd_merge.sub"
       echo "VARS MERGE ROOT=\"$ROOT\" RUNS_ROOT=\"$RUNS_ROOT\" RUN_ID=\"$RUN_ID\""

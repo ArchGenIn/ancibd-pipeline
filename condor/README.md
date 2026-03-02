@@ -10,16 +10,21 @@ All templates assume the pipeline is started from a configured repo checkout and
 
 ## Resource requests
 
-The `request_cpus/memory/disk` values are tuned for the **local cloud emulator** defaults
-documented in `docs/local_cloud_emulation.md` (2 vCPU / 8 GB execute VMs with StaticSlots).
+The batchpair template (`ancibd_batchpair.sub`) uses per-node `VARS` from the DAG to set
+`request_cpus/request_memory/request_disk`.
 
-If your jobs remain idle in the emulator, check:
+Defaults are derived from `BATCH_SIZE` in `config/local.env` (see `scripts/lib.sh`) and can
+be overridden explicitly via:
+
+- `BP_REQUEST_CPUS`, `BP_REQUEST_MEMORY`, `BP_REQUEST_DISK`
+
+If jobs remain idle, check:
 
 ```bash
 condor_q -better-analyze <clusterid>
 ```
 
-and adjust the requests in the `.sub` files (or your slot sizing).
+and adjust either your requests or your slot sizing (static/partitionable slots).
 
 ## Shared filesystem assumption
 

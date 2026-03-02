@@ -35,6 +35,36 @@ load_config() {
   HDF5_EXT="${HDF5_EXT:-.h5}"
 
   VCF_1240K_SUFFIX="${VCF_1240K_SUFFIX:-.1240k.vcf.gz}"
+
+  # --- HTCondor / DAGMan tuning ---
+  # Optional global concurrency cap for prod batchpair nodes.
+  # If BP_MAXJOBS is 0 or empty, no MAXJOBS line is emitted.
+  BP_MAXJOBS="${BP_MAXJOBS:-0}"
+
+  # Resource requests for batchpair jobs (partitionable slot friendly).
+  # These can be overridden explicitly in config/local.env.
+  BP_REQUEST_CPUS="${BP_REQUEST_CPUS:-1}"
+  BP_REQUEST_DISK="${BP_REQUEST_DISK:-2GB}"
+
+  if [[ -z "${BP_REQUEST_MEMORY:-}" ]]; then
+    # Derive a conservative default request_memory from BATCH_SIZE.
+    # Motivation: batchpair memory scales ~linearly with the number of loaded
+    # individuals (~2*S), but *which* batchpair is worst-case is data-dependent.
+    #
+    # Empirical anchor (workstation timev, huge HDF5): some batchpairs reached
+    # ~4.5 GiB at S=200 even when 0-1 was much smaller.
+    # Use an anchor slightly above that (4800 MB at S=200) and a safety factor
+    # of 1.4x, scaled linearly with S.
+    #
+    # Formula (in MB): ceil( 4800 * S * 1.4 / 200 )
+    local s="${BATCH_SIZE:-300}"
+    local anchor_mb=4800
+    local num=7  # 1.4 = 7/5
+    local den=5
+    local denom=$((den * 200))
+    local mem_mb=$(( (anchor_mb * s * num + denom - 1) / denom ))
+    BP_REQUEST_MEMORY="${mem_mb}MB"
+  fi
 }
 
 tpl() {
