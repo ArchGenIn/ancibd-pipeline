@@ -15,3 +15,6 @@ Set these explicitly in `config/local.env` for normal runs:
 - `BP_REQUEST_DISK`
 
 `tune_grid.sh` rewrites the same keys temporarily for tuning sweeps.
+
+The merge job always creates `out/merged/ibd_ind.tsv`.
+It creates `out/merged/ch_all.tsv` only when `MERGE_CH_ALL="1"` in `config/local.env`.

@@ -7,10 +7,16 @@ The two main entry points are:
 - `baseline`: run ancIBD chromosome by chromosome, then run `ancIBD-summary`
 - `prod`: submit batchpair jobs plus one merge job through DAGMan
 
-Both modes write their merged outputs to:
+Baseline writes both merged outputs:
 
 - `runs/<RUN_ID>/out/merged/ch_all.tsv`
 - `runs/<RUN_ID>/out/merged/ibd_ind.tsv`
+
+Prod always writes:
+
+- `runs/<RUN_ID>/out/merged/ibd_ind.tsv`
+
+Prod writes `runs/<RUN_ID>/out/merged/ch_all.tsv` only when `MERGE_CH_ALL="1"` in `config/local.env`.
 
 ## Setup
 
@@ -86,6 +92,9 @@ Set explicit batchpair resource requests in `config/local.env`:
 - `BP_REQUEST_CPUS`
 - `BP_REQUEST_MEMORY`
 - `BP_REQUEST_DISK`
+
+The final prod merge always writes `out/merged/ibd_ind.tsv`.
+Set `MERGE_CH_ALL="1"` only if you also want the monolithic `out/merged/ch_all.tsv`.
 
 Then run:
 

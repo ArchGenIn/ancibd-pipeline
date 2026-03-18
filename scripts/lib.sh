@@ -26,6 +26,7 @@ load_config() {
   HDF5_EXT="${HDF5_EXT:-.h5}"
   VCF_1240K_SUFFIX="${VCF_1240K_SUFFIX:-.1240k.vcf.gz}"
   BP_MAXJOBS="${BP_MAXJOBS:-0}"
+  MERGE_CH_ALL="${MERGE_CH_ALL:-0}"
 }
 
 tpl() {

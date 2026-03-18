@@ -46,11 +46,16 @@ hash_sorted() {
   tail -n +2 "$f" | LC_ALL=C sort | sha256sum | awk '{print $1}'
 }
 
+checked=0
 for name in ch_all.tsv ibd_ind.tsv; do
   A="$DIR_A_IN/$name"
   B="$DIR_B_IN/$name"
   HA="$(hash_sorted "$A")"
   HB="$(hash_sorted "$B")"
+  if [[ "$HA" == "MISSING" && "$HB" == "MISSING" ]]; then
+    echo "$name: skipped (missing in both)"
+    continue
+  fi
   if [[ "$HA" == "MISSING" || "$HB" == "MISSING" ]]; then
     echo "$name: missing file(s) (A=$A, B=$B)"
     exit 2
@@ -63,6 +68,9 @@ for name in ch_all.tsv ibd_ind.tsv; do
   else
     echo "$name: OK"
   fi
+  checked=$((checked + 1))
 done
+
+[[ "$checked" -gt 0 ]] || { echo "No comparable output files found"; exit 2; }
 
 echo "All OK"
