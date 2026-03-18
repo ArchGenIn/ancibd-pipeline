@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
-"""Create an ancIBD HDF5 for one chromosome from a phased VCF/BCF.
+"""Create an ancIBD HDF5 for one chromosome from a phased VCF/BCF."""
 
-Pipeline conventions:
-
-- ``variants/AF_ALL`` stores sample allele frequencies computed from the input
-  data during HDF5 creation.
-- ``variants/RAF`` is preserved as imported from the filtered VCF/BCF when that
-  field exists in the input.
-- optional standalone reference-AF TSVs are stored in ``variants/AF_REF``.
-
-The final output is written atomically via a temporary ``.tmp`` file.
-"""
 import argparse
 from pathlib import Path
-
 
 REF_AF_FIELD = "variants/AF_REF"
 
@@ -30,30 +19,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--col-sample-af",
         default="AF_ALL",
-        help="Dataset name (under variants/) to store sample AFs. Default: AF_ALL",
+        help="Dataset name under variants/ for sample AFs.",
     )
     p.add_argument(
         "--ref-af",
-        "--raf",
-        dest="ref_af",
         default="",
-        help=(
-            "Optional per-chromosome reference-AF TSV to add as variants/AF_REF. "
-            "The file must contain 'pos' and 'af' columns. "
-            "The legacy alias --raf is accepted."
-        ),
+        help="Optional per-chromosome reference-AF TSV with 'pos' and 'af' columns.",
     )
     return p.parse_args()
 
 
 def add_ref_af_dataset(h5_path: Path, ref_af_tsv: Path) -> None:
-    """Add ``variants/AF_REF`` using ancIBD's TSV->HDF5 merge helper.
-
-    ancIBD's ``lift_af_df`` merges by position and preserves its own handling of
-    duplicate positions. The imported VCF-derived ``variants/RAF`` field is left
-    untouched.
-    """
-
     import h5py  # type: ignore
     from ancIBD.IO.h5_modify import lift_af_df  # type: ignore
 
@@ -61,11 +37,7 @@ def add_ref_af_dataset(h5_path: Path, ref_af_tsv: Path) -> None:
         if REF_AF_FIELD in f:
             del f[REF_AF_FIELD]
 
-    lift_af_df(
-        h5_target=str(h5_path),
-        path_df=str(ref_af_tsv),
-        field=REF_AF_FIELD,
-    )
+    lift_af_df(h5_target=str(h5_path), path_df=str(ref_af_tsv), field=REF_AF_FIELD)
 
 
 def main() -> None:
@@ -77,8 +49,6 @@ def main() -> None:
     out_vcf = Path(args.out_vcf)
     out_h5 = Path(args.out_h5)
     tmp_h5 = Path(args.tmp_h5)
-    ch = int(args.ch)
-
     ref_af_tsv = Path(args.ref_af) if args.ref_af else None
 
     print("[create_hdf5] Starting ancIBD.IO.prepare_h5.vcf_to_1240K_hdf")
@@ -89,7 +59,7 @@ def main() -> None:
     print(f"[create_hdf5] out_vcf       = {out_vcf}")
     print(f"[create_hdf5] out_h5        = {out_h5}")
     print(f"[create_hdf5] tmp_h5        = {tmp_h5}")
-    print(f"[create_hdf5] ch            = {ch}")
+    print(f"[create_hdf5] ch            = {args.ch}")
     print(f"[create_hdf5] col_sample_af = 'variants/{args.col_sample_af}'")
     print(f"[create_hdf5] ref_af_field  = '{REF_AF_FIELD}'")
 
@@ -105,7 +75,7 @@ def main() -> None:
         map_path=str(map_path),
         af_path="",
         col_sample_af=str(args.col_sample_af),
-        ch=ch,
+        ch=int(args.ch),
     )
 
     if ref_af_tsv is not None:
@@ -113,10 +83,7 @@ def main() -> None:
             raise SystemExit(f"Reference-AF TSV not found: {ref_af_tsv}")
         add_ref_af_dataset(tmp_h5, ref_af_tsv)
 
-    import shutil
-
-    shutil.move(str(tmp_h5), str(out_h5))
-
+    tmp_h5.replace(out_h5)
     print("[create_hdf5] DONE")
 
 

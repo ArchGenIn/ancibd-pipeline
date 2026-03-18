@@ -1,59 +1,27 @@
 #!/usr/bin/env python3
-"""Run ancIBD for one chromosome from a prebuilt HDF5.
+"""Run ancIBD for one chromosome from a prebuilt HDF5."""
 
-Expected allele-frequency fields:
-
-- ``variants/AF_ALL``: sample allele frequencies computed during HDF5 build
-- ``variants/RAF``: RAF field imported from the filtered VCF/BCF, when present
-- ``variants/AF_REF``: standalone reference-AF TSVs baked into the HDF5
-
-Select the field ancIBD should use with ``--pcol``.
-"""
 import argparse
+import os
+import tempfile
 from pathlib import Path
 from typing import List, Tuple
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument(
-        "--h5",
-        required=True,
-        help=(
-            "Path to chromosome HDF5. The filename can be arbitrary as long as it "
-            "contains the data for the requested chromosome."
-        ),
-    )
+    p.add_argument("--h5", required=True, help="Chromosome HDF5.")
     p.add_argument("--ch", required=True, type=int, help="Chromosome number (1-22)")
-    p.add_argument("--out-dir", required=True, help="Output directory to write <prefix>.ch<CH>.tsv")
-    p.add_argument("--prefix", required=True, help="Output prefix (e.g. example_hazelton)")
-    p.add_argument(
-        "--pcol",
-        default="AF_ALL",
-        help=(
-            "Which allele-frequency column to use: AF_ALL (sample, default), "
-            "RAF (VCF-derived RAF), or AF_REF (standalone reference-AF TSV baked into the HDF5)"
-        ),
-    )
-    p.add_argument(
-        "--iids-file",
-        default="",
-        help="Optional file with one IID per line. If omitted, all samples in the HDF5 are loaded.",
-    )
+    p.add_argument("--out-dir", required=True, help="Directory for <prefix>.ch<CH>.tsv")
+    p.add_argument("--prefix", required=True, help="Output prefix")
+    p.add_argument("--pcol", default="AF_ALL", help="AF field to use: AF_ALL, RAF, or AF_REF.")
+    p.add_argument("--iids-file", default="", help="Optional file with one IID per line.")
     p.add_argument(
         "--pairs-file",
         default="",
-        help=(
-            "Optional file with IID pairs (two columns, whitespace-separated). "
-            "If omitted, all pairs among loaded IIDs are run."
-        ),
+        help="Optional file with IID pairs in two whitespace-separated columns.",
     )
-    p.add_argument(
-        "--min-cm",
-        type=float,
-        default=6.0,
-        help="Minimum IBD segment length in cM (default: 6).",
-    )
+    p.add_argument("--min-cm", type=float, default=6.0, help="Minimum IBD segment length in cM.")
     return p.parse_args()
 
 
@@ -62,16 +30,13 @@ def _read_lines(path: Path) -> List[str]:
     with path.open("r", encoding="utf-8") as f:
         for raw in f:
             s = raw.strip()
-            if not s or s.startswith("#"):
-                continue
-            lines.append(s)
+            if s and not s.startswith("#"):
+                lines.append(s)
     return lines
 
 
 def read_iids(iids_file: str) -> List[str]:
-    if not iids_file:
-        return []
-    return _read_lines(Path(iids_file))
+    return [] if not iids_file else _read_lines(Path(iids_file))
 
 
 def read_pairs(pairs_file: str) -> List[Tuple[str, str]]:
@@ -91,21 +56,13 @@ def read_pairs(pairs_file: str) -> List[Tuple[str, str]]:
 
 
 def prepare_folder_in(h5_path: Path, ch: int, *, tmp_root: Path) -> tuple[str, Path]:
-    """Prepare an ancIBD-compatible folder_in prefix for an arbitrary HDF5 filename."""
-    import tempfile
-
     tmpdir = Path(tempfile.mkdtemp(prefix="ancibd_h5link_", dir=str(tmp_root)))
     prefix = str(tmpdir / "h5.")
-    link_path = Path(f"{prefix}{ch}.h5")
-    try:
-        link_path.symlink_to(h5_path)
-    except FileExistsError:
-        pass
+    Path(f"{prefix}{ch}.h5").symlink_to(h5_path)
     return prefix, tmpdir
 
 
 def ensure_pcol_exists(h5_path: Path, pcol: str) -> None:
-    """If pcol points to an HDF5 dataset, ensure it exists."""
     import h5py  # type: ignore
 
     with h5py.File(h5_path, "r") as f:
@@ -113,25 +70,23 @@ def ensure_pcol_exists(h5_path: Path, pcol: str) -> None:
             if pcol == "variants/RAF":
                 raise SystemExit(
                     f"Requested p_col={pcol} but it is missing in {h5_path}. "
-                    "This HDF5 does not contain a VCF-derived RAF field. "
-                    "Run with --pcol AF_ALL or AF_REF instead."
+                    "Use --pcol AF_ALL or rebuild from an input VCF/BCF that provides RAF."
                 )
             if pcol == "variants/AF_REF":
                 raise SystemExit(
                     f"Requested p_col={pcol} but it is missing in {h5_path}. "
-                    "Rebuild the HDF5 with --with-ref-af (or --with-raf), "
-                    "or run with --pcol AF_ALL or RAF."
+                    "Rebuild the HDF5 with --with-ref-af or use --pcol AF_ALL or RAF."
                 )
             raise SystemExit(f"Requested p_col={pcol} but it is missing in {h5_path}.")
 
 
 def normalize_pcol(value: str) -> str:
     pcol_norm = value.strip().upper()
-    if pcol_norm in {"AF_ALL", "AFALL", "AF"}:
+    if pcol_norm == "AF_ALL":
         return "variants/AF_ALL"
     if pcol_norm == "RAF":
         return "variants/RAF"
-    if pcol_norm in {"AF_REF", "AFREF", "REF_AF", "REFAF", "REF"}:
+    if pcol_norm == "AF_REF":
         return "variants/AF_REF"
     raise SystemExit(f"Invalid --pcol value: {value!r} (expected AF_ALL, RAF, or AF_REF)")
 
@@ -151,11 +106,8 @@ def main() -> None:
 
     from ancIBD.run import hapBLOCK_chroms  # type: ignore
 
-    import os
-
     tmp_root = Path(os.environ.get("TMPDIR") or "/tmp")
     folder_in, tmpdir = prepare_folder_in(h5_path, args.ch, tmp_root=tmp_root)
-
     iids = read_iids(args.iids_file)
     run_iids = read_pairs(args.pairs_file)
 
@@ -191,16 +143,10 @@ def main() -> None:
 
     tmp_path = out_dir / f"ch{int(args.ch)}.tsv"
     final_path = out_dir / f"{args.prefix}.ch{int(args.ch)}.tsv"
-
     if not tmp_path.exists():
-        raise SystemExit(
-            f"ancIBD did not produce expected output file: {tmp_path}. "
-            "Check logs for ancIBD errors."
-        )
-
+        raise SystemExit(f"ancIBD did not produce expected output file: {tmp_path}. Check logs for ancIBD errors.")
     if final_path.exists():
         final_path.unlink()
-
     tmp_path.rename(final_path)
 
 

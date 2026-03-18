@@ -1,20 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ancibd-pipeline
-#
-# Tight wrapper around ancIBD with two execution modes:
-#   - baseline: dumb/slow/obviously-correct reference
-#   - prod:     concurrent batchpair workflow (HTCondor DAGMan)
-#
-# Plus the minimum supporting commands:
-#   - build/validate HDF5
-#   - progress checks
-#   - run directory creation
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# shellcheck source=scripts/lib.sh
 source "$ROOT/scripts/lib.sh"
 
 usage() {
@@ -22,83 +9,37 @@ usage() {
 Usage:
   ./ancibd-pipeline <command> [args...]
 
-Chromosome range resolution (all commands that accept CH_RANGE):
-  1) positional CH_RANGE argument (e.g. 1-22)
+Chromosome range resolution:
+  1) positional CH_RANGE argument
   2) CH_RANGE environment variable
   3) CH_RANGE in config/local.env
   4) fallback 1-22
 
-Core workflow:
+Commands:
   baseline [CH_RANGE] [--pcol AF_ALL|RAF|AF_REF]
-      Dumb, slow, reference mode.
-      Runs ancIBD per chromosome for CH_RANGE, then runs ancIBD-summary.
-      Outputs: runs/<RUN_ID>/out/merged/{ch_all.tsv,ibd_ind.tsv}
-      Requires RUN_ID.
-
   prod [CH_RANGE] [--pcol AF_ALL|RAF|AF_REF]
-      Concurrent production mode (batchpairs + merge) using HTCondor DAGMan.
-      Outputs: runs/<RUN_ID>/out/merged/{ch_all.tsv,ibd_ind.tsv}
-      Requires RUN_ID.
-
-Allele-frequency modes:
-  --pcol AF_ALL (default)
-      Use sample allele frequencies stored in the HDF5 at variants/AF_ALL.
-
-  --pcol RAF
-      Use the RAF field imported from the filtered VCF/BCF, stored in the HDF5
-      at variants/RAF if the input VCF/BCF provides it.
-
-  --pcol AF_REF
-      Use per-chromosome reference-AF TSVs baked into the HDF5 at
-      variants/AF_REF. This field is created only when the HDF5 build step is
-      run with --with-ref-af (or the backward-compatible alias --with-raf).
-
-Inputs:
   build-hdf5 [CH_RANGE] [--force] [--with-ref-af] [--ref-af-path PATH]
-      Build per-chromosome HDF5 inputs under HDF5_ROOT.
-      Does NOT require RUN_ID.
-      The build always computes sample AFs into variants/AF_ALL.
-      If --with-ref-af is given, per-chromosome reference-AF TSVs are merged
-      into variants/AF_REF.
-      The reference-AF template comes from config/local.env:
-      REF_AF_TEMPLATE (fallback: RAF_TEMPLATE).
-      Use --ref-af-path to override that template (may include {CH}).
-      Backward-compatible aliases: --with-raf and --raf-path.
-
   build-hdf5-condor [CH_RANGE] [--force] [--with-ref-af] [--ref-af-path PATH]
-      Same as build-hdf5, but submits one job per chromosome via HTCondor.
-      Does NOT require RUN_ID.
-
   validate-hdf5 [CH_RANGE]
-      Validate the HDF5s expected for CH_RANGE.
-      Does NOT require RUN_ID.
-
-Utilities:
   new-run <TAG>
-      Create a new run directory and print the RUN_ID.
-
   check-batch [--missing-only] [--write-missing PATH]
-      Report progress for the prod workflow of RUN_ID.
 
-Notes:
-  - Configure the pipeline by copying config/example.env to config/local.env.
-  - Build the container image once with ./containers/build.sh
+Allele-frequency fields:
+  AF_ALL   sample AFs computed during HDF5 build
+  RAF      RAF imported from the filtered VCF/BCF
+  AF_REF   standalone reference-AF TSVs baked into the HDF5
 USAGE
 }
 
 normalize_pcol() {
-  local v="$1"
-  v="${v^^}"
+  local v="${1^^}"
   case "$v" in
-    AF_ALL|AFALL|AF) echo "AF_ALL" ;;
-    RAF) echo "RAF" ;;
-    AF_REF|AFREF|REF_AF|REFAF|REF) echo "AF_REF" ;;
+    AF_ALL|RAF|AF_REF) echo "$v" ;;
     *) die "Invalid --pcol value: $1 (expected AF_ALL, RAF, or AF_REF)" ;;
   esac
 }
 
 choose_ch_range() {
-  # Args: <cli> <env> <cfg>
   local cli="$1" env="$2" cfg="$3"
   if [[ -n "$cli" ]]; then
     echo "$cli"
@@ -112,13 +53,9 @@ choose_ch_range() {
 }
 
 write_run_options() {
-  # Persist run-level options for reproducibility and for Condor jobs.
-  # Args: <RUN_DIR> <PCOL>
   local run_dir="$1" pcol="$2"
   mkdir -p "$run_dir/meta"
-  {
-    echo "PCOL=$pcol"
-  } > "$run_dir/meta/options.env"
+  printf 'PCOL=%s\n' "$pcol" > "$run_dir/meta/options.env"
 }
 
 cmd="${1:-}"
@@ -147,9 +84,9 @@ case "$cmd" in
       case "$1" in
         --force)
           FORCE=1; shift ;;
-        --with-ref-af|--with-raf)
+        --with-ref-af)
           WITH_REF_AF=1; shift ;;
-        --ref-af-path|--raf-path)
+        --ref-af-path)
           [[ -n "${2:-}" ]] || die "$1 requires a value"
           REF_AF_PATH_OVERRIDE="$2"; WITH_REF_AF=1; shift 2 ;;
         *)
@@ -166,14 +103,10 @@ case "$cmd" in
     CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
 
     EXTRA_ARGS=()
-    if [[ $FORCE -eq 1 ]]; then
-      EXTRA_ARGS+=(--force)
-    fi
+    [[ $FORCE -eq 1 ]] && EXTRA_ARGS+=(--force)
     if [[ $WITH_REF_AF -eq 1 ]]; then
       EXTRA_ARGS+=(--with-ref-af)
-      if [[ -n "$REF_AF_PATH_OVERRIDE" ]]; then
-        EXTRA_ARGS+=(--ref-af-path "$REF_AF_PATH_OVERRIDE")
-      fi
+      [[ -n "$REF_AF_PATH_OVERRIDE" ]] && EXTRA_ARGS+=(--ref-af-path "$REF_AF_PATH_OVERRIDE")
     fi
 
     read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE_USE")
@@ -193,9 +126,9 @@ case "$cmd" in
       case "$1" in
         --force)
           FORCE=1; shift ;;
-        --with-ref-af|--with-raf)
+        --with-ref-af)
           WITH_REF_AF=1; shift ;;
-        --ref-af-path|--raf-path)
+        --ref-af-path)
           [[ -n "${2:-}" ]] || die "$1 requires a value"
           REF_AF_PATH_OVERRIDE="$2"; WITH_REF_AF=1; shift 2 ;;
         *)
@@ -210,17 +143,13 @@ case "$cmd" in
 
     load_config
     require_cmd condor_submit
-
     CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
 
     mkdir -p "$HDF5_ROOT/logs"
 
     FORCE_ARG=""
-    if [[ $FORCE -eq 1 ]]; then
-      FORCE_ARG="--force"
-    fi
-
     REF_AF_ARGS=""
+    [[ $FORCE -eq 1 ]] && FORCE_ARG="--force"
     if [[ $WITH_REF_AF -eq 1 ]]; then
       if [[ -n "$REF_AF_PATH_OVERRIDE" ]]; then
         REF_AF_ARGS="--with-ref-af --ref-af-path $REF_AF_PATH_OVERRIDE"
@@ -248,7 +177,6 @@ case "$cmd" in
 
     load_config
     CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
-
     exec "$ROOT/scripts/validate_hdf5_range.sh" "$CH_RANGE_USE"
     ;;
 
@@ -265,17 +193,14 @@ case "$cmd" in
       case "$1" in
         --pcol)
           [[ -n "${2:-}" ]] || die "--pcol requires a value"
-          PCOL="$(normalize_pcol "$2")"; shift 2
-          ;;
+          PCOL="$(normalize_pcol "$2")"; shift 2 ;;
         *)
-          die "Unknown arg for baseline: $1"
-          ;;
+          die "Unknown arg for baseline: $1" ;;
       esac
     done
 
     load_config
     CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
-
     RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
 
     RUN_DIR="$RUNS_ROOT/$RUN_ID"
@@ -312,19 +237,17 @@ case "$cmd" in
       case "$1" in
         --pcol)
           [[ -n "${2:-}" ]] || die "--pcol requires a value"
-          PCOL="$(normalize_pcol "$2")"; shift 2
-          ;;
+          PCOL="$(normalize_pcol "$2")"; shift 2 ;;
         *)
-          die "Unknown arg for prod: $1"
-          ;;
+          die "Unknown arg for prod: $1" ;;
       esac
     done
 
     load_config
+    require_batchpair_requests
     require_cmd condor_submit_dag
 
     CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
-
     RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
 
     RUN_DIR="$RUNS_ROOT/$RUN_ID"
@@ -333,7 +256,6 @@ case "$cmd" in
     "$ROOT/scripts/write_manifest.sh"
     write_run_options "$RUN_DIR" "$PCOL"
 
-    # Ensure IID list and batchpairs exist before submitting.
     "$ROOT/scripts/make_iid_list.sh" >/dev/null
     "$ROOT/scripts/make_batchpairs.sh" >/dev/null
 
@@ -345,11 +267,7 @@ case "$cmd" in
     PAIRS_FILE="$RUN_DIR/meta/batchpairs.tsv"
     [[ -s "$PAIRS_FILE" ]] || die "Missing or empty pairs file: $PAIRS_FILE"
 
-    # Build one DAG node per batchpair.
-    # This is crucial: DAGMan dependencies are defined between *nodes*, and a single
-    # node which queues many procs can cause the merge step to run too early.
     bp_nodes=()
-
     {
       echo "# Auto-generated by ancibd-pipeline prod"
       echo "# Repo root: $ROOT"
@@ -367,7 +285,7 @@ case "$cmd" in
         echo
       done < "$PAIRS_FILE"
 
-      if [[ "${BP_MAXJOBS:-0}" != "0" && -n "${BP_MAXJOBS:-}" ]]; then
+      if [[ -n "${BP_MAXJOBS:-}" && "$BP_MAXJOBS" != "0" ]]; then
         echo "MAXJOBS BP $BP_MAXJOBS"
         echo
       fi
@@ -377,11 +295,7 @@ case "$cmd" in
       echo
     } > "$DAG_FILE"
 
-    # Add dependencies: all batchpair nodes -> MERGE.
-    # Split into chunks to avoid extremely long single lines for large runs.
-    if [[ ${#bp_nodes[@]} -eq 0 ]]; then
-      die "No batchpair nodes were generated from: $PAIRS_FILE"
-    fi
+    [[ ${#bp_nodes[@]} -gt 0 ]] || die "No batchpair nodes were generated from: $PAIRS_FILE"
 
     {
       chunk=()

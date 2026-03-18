@@ -5,7 +5,7 @@ source "$ROOT/scripts/lib.sh"
 load_config
 require_cmd apptainer
 
-CH="${1:?usage: build_hdf5.sh <CH> [--force] [--with-ref-af|--with-raf] [--ref-af-path|--raf-path TEMPLATE_OR_PATH]}"
+CH="${1:?usage: build_hdf5.sh <CH> [--force] [--with-ref-af] [--ref-af-path TEMPLATE_OR_PATH]}"
 shift || true
 
 FORCE=0
@@ -15,18 +15,14 @@ REF_AF_PATH_ARG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force)
-      FORCE=1; shift
-      ;;
-    --with-ref-af|--with-raf)
-      WITH_REF_AF=1; shift
-      ;;
-    --ref-af-path|--raf-path)
+      FORCE=1; shift ;;
+    --with-ref-af)
+      WITH_REF_AF=1; shift ;;
+    --ref-af-path)
       [[ -n "${2:-}" ]] || die "$1 requires a value"
-      REF_AF_PATH_ARG="$2"; WITH_REF_AF=1; shift 2
-      ;;
+      REF_AF_PATH_ARG="$2"; WITH_REF_AF=1; shift 2 ;;
     *)
-      die "Unknown arg for build_hdf5.sh: $1"
-      ;;
+      die "Unknown arg for build_hdf5.sh: $1" ;;
   esac
 done
 
@@ -50,9 +46,9 @@ REF_AF_ARGS=()
 if [[ $WITH_REF_AF -eq 1 ]]; then
   REF_AF_TEMPLATE_EFF="$REF_AF_PATH_ARG"
   if [[ -z "$REF_AF_TEMPLATE_EFF" ]]; then
-    REF_AF_TEMPLATE_EFF="${REF_AF_TEMPLATE:-${RAF_TEMPLATE:-}}"
+    REF_AF_TEMPLATE_EFF="${REF_AF_TEMPLATE:-}"
   fi
-  [[ -n "$REF_AF_TEMPLATE_EFF" ]] || die "--with-ref-af requires REF_AF_TEMPLATE (or legacy RAF_TEMPLATE) in config/local.env, or pass --ref-af-path"
+  [[ -n "$REF_AF_TEMPLATE_EFF" ]] || die "--with-ref-af requires REF_AF_TEMPLATE in config/local.env, or pass --ref-af-path"
 
   REF_AF_PATH="$(tpl "$REF_AF_TEMPLATE_EFF" "$CH")"
   [[ -f "$REF_AF_PATH" ]] || die "Missing reference-AF TSV for ch${CH}: $REF_AF_PATH"
@@ -61,16 +57,12 @@ if [[ $WITH_REF_AF -eq 1 ]]; then
 fi
 
 TMP_H5="$H5_PATH.tmp"
-
-mkdir -p "$(dirname "$H5_PATH")"
-mkdir -p "$(dirname "$VCF_1240K_PATH")"
+mkdir -p "$(dirname "$H5_PATH")" "$(dirname "$VCF_1240K_PATH")"
 
 echo "[build_hdf5] Building HDF5 for ch$CH"
 echo "[build_hdf5] Input  : $VCF_PATH"
 echo "[build_hdf5] Output : $H5_PATH"
-if [[ $WITH_REF_AF -eq 1 ]]; then
-  echo "[build_hdf5] Ref AF : $REF_AF_PATH"
-fi
+[[ $WITH_REF_AF -eq 1 ]] && echo "[build_hdf5] Ref AF : $REF_AF_PATH"
 
 DATA_ROOT_NORM="$(data_root_norm)"
 HDF5_ROOT_NORM="$(hdf5_root_norm)"
@@ -78,7 +70,6 @@ HDF5_ROOT_NORM="$(hdf5_root_norm)"
 VCF_REL="$(rel_under_data "$VCF_PATH")"
 MARKER_REL="$(rel_under_data "$MARKER_PATH")"
 MAP_REL="$(rel_under_data "$MAP_PATH")"
-
 H5_REL="$(rel_under_hdf5 "$H5_PATH")"
 VCF_1240K_REL="$(rel_under_hdf5 "$VCF_1240K_PATH")"
 TMP_H5_REL="$(rel_under_hdf5 "$TMP_H5")"
