@@ -3,7 +3,7 @@
 This folder contains the submit templates used by `./ancibd-pipeline`:
 
 - `ancibd_hdf5.sub`: one chromosome per HDF5 build job
-- `ancibd_batchpair.sub`: one batchpair node in the `prod` DAG
+- `ancibd_batchpair.sub`: one pairjob node in the `prod` or `prod-incremental` DAG
 - `ancibd_merge.sub`: final merge step in the `prod` DAG
 
 `ancibd_batchpair.sub` receives its `request_cpus`, `request_memory`, and `request_disk` values from the config file through DAG `VARS` lines.

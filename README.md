@@ -2,21 +2,22 @@
 
 Wrapper pipeline around **ancIBD** with **Apptainer** isolation and **HTCondor** concurrency.
 
-The two main entry points are:
+The main entry points are:
 
 - `baseline`: run ancIBD chromosome by chromosome, then run `ancIBD-summary`
-- `prod`: submit batchpair jobs plus one merge job through DAGMan
+- `prod`: submit all-vs-all pairjobs plus one merge job through DAGMan
+- `prod-incremental`: submit only pairjobs with at least one IID from a target set
 
 Baseline writes both merged outputs:
 
 - `runs/<RUN_ID>/out/merged/ch_all.tsv`
 - `runs/<RUN_ID>/out/merged/ibd_ind.tsv`
 
-Prod always writes:
+Prod and prod-incremental always write:
 
 - `runs/<RUN_ID>/out/merged/ibd_ind.tsv`
 
-Prod writes `runs/<RUN_ID>/out/merged/ch_all.tsv` only when `MERGE_CH_ALL="1"` in `config/local.env`.
+They write `runs/<RUN_ID>/out/merged/ch_all.tsv` only when `MERGE_CH_ALL="1"` in `config/local.env`.
 
 ## Setup
 
@@ -87,14 +88,11 @@ RUN_ID="$(./ancibd-pipeline new-run baseline)"; export RUN_ID
 
 ## Run prod
 
-Set explicit batchpair resource requests in `config/local.env`:
+Set explicit pairjob resource requests in `config/local.env`:
 
 - `BP_REQUEST_CPUS`
 - `BP_REQUEST_MEMORY`
 - `BP_REQUEST_DISK`
-
-The final prod merge always writes `out/merged/ibd_ind.tsv`.
-Set `MERGE_CH_ALL="1"` only if you also want the monolithic `out/merged/ch_all.tsv`.
 
 Then run:
 
@@ -105,7 +103,61 @@ RUN_ID="$(./ancibd-pipeline new-run prod)"; export RUN_ID
 ./ancibd-pipeline prod 20-20 --pcol AF_REF
 ```
 
-Monitor with:
+The planner writes:
+
+- `runs/<RUN_ID>/meta/pairjobs.tsv`
+- `runs/<RUN_ID>/work/plans/<JOB_ID>.iids`
+- `runs/<RUN_ID>/work/plans/<JOB_ID>.pairs`
+
+For the default all-vs-all workflow, job IDs are the coarse batch rectangles:
+
+- `b000_b000`
+- `b000_b001`
+- ...
+
+## Run prod-incremental
+
+`prod-incremental` analyses only pairs with at least one IID from a target set.
+
+The target set comes from a one-column IID file and `--delta-kind`:
+
+- `--delta-kind new`: listed IIDs are the target set
+- `--delta-kind analyzed`: listed IIDs have already been analysed, so the target set is the complement within the current HDF5 sample list
+
+This mode includes:
+
+- target × target
+- target × non-target
+
+and excludes:
+
+- non-target × non-target
+
+Examples:
+
+```bash
+RUN_ID="$(./ancibd-pipeline new-run prod-incremental)"; export RUN_ID
+./ancibd-pipeline prod-incremental 1-22 \
+  --delta-iids data/new_samples.txt \
+  --delta-kind new
+
+RUN_ID="$(./ancibd-pipeline new-run prod-incremental)"; export RUN_ID
+./ancibd-pipeline prod-incremental 1-22 \
+  --delta-iids data/already_analysed.txt \
+  --delta-kind analyzed \
+  --pcol RAF
+```
+
+The planner still uses `BATCH_SIZE` to define coarse sample batches, but it emits only the exact pairjobs required by the target set. Job IDs are suffixed by the job shape:
+
+- `_newleft`
+- `_newright`
+- `_newnew`
+- `_newold`
+
+The resolved target IID set is written to `runs/<RUN_ID>/meta/target_iids.txt`.
+
+## Monitor prod runs
 
 ```bash
 condor_q

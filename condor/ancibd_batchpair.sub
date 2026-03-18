@@ -2,7 +2,7 @@ universe              = vanilla
 getenv                = True
 should_transfer_files = NO
 executable            = /bin/bash
-arguments             = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/run_batchpair_timed.sh $(B1) $(B2) $(CH_RANGE) $(Cluster) $(Process)'"
+arguments             = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/run_batchpair_timed.sh $(JOB_ID) $(CH_RANGE) $(Cluster) $(Process)'"
 
 request_cpus   = $(REQ_CPUS)
 request_memory = $(REQ_MEM)
