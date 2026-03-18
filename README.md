@@ -157,6 +157,16 @@ The planner still uses `BATCH_SIZE` to define coarse sample batches, but it emit
 
 The resolved target IID set is written to `runs/<RUN_ID>/meta/target_iids.txt`.
 
+To prepare the target IID file for an incremental run from a previous full analysis, use:
+
+```bash
+RUN_ID=20260318T120000Z_prod-incremental
+./scripts/make_new_samples_list.sh \
+  --analyzed-iids runs/<OLD_RUN_ID>/meta/iids.txt
+```
+
+This writes `./${RUN_ID}_new_samples.txt` by subtracting the listed analysed IIDs from the current HDF5 sample list. If the analysed IID file contains names that are not present in the HDF5s, the helper prints a warning and still writes the set difference.
+
 ## Monitor prod runs
 
 ```bash

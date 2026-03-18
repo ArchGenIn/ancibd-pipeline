@@ -12,37 +12,13 @@ mkdir -p "$RUN_DIR/meta" "$RUN_DIR/logs"
 
 OUT_HOST="$RUN_DIR/meta/iids.txt"
 
-# Pick a chromosome just to read sample IDs from the HDF5.
-# The sample set should be identical across chromosomes for a given dataset.
 CH="${1:-}"
-if [[ -z "$CH" ]]; then
-  local_range="${CH_RANGE:-20-20}"
-  read -r CH_START CH_END < <(parse_ch_range "$local_range")
-  # Prefer the first chromosome that has an HDF5 present.
-  for ((c=CH_START; c<=CH_END; c++)); do
-    if [[ -f "$(h5_path_for_ch "$c")" ]]; then
-      CH="$c"
-      break
-    fi
-  done
-  # If none in CH_RANGE exist, try any HDF5 under HDF5_ROOT.
-  if [[ -z "$CH" ]]; then
-    any_h5="$(find "$(hdf5_root_norm)" -maxdepth 2 -type f -name '*.h5' | head -n 1 || true)"
-    [[ -n "$any_h5" ]] || die "No HDF5 files found under HDF5_ROOT ($(hdf5_root_norm))."
-    # We don't know its chromosome number; use it directly below.
-  fi
-fi
-
-# If CH is set, use the configured naming to locate the per-chromosome HDF5.
-H5_PATH=""
 if [[ -n "$CH" ]]; then
   H5_PATH="$(h5_path_for_ch "$CH")"
+  [[ -f "$H5_PATH" ]] || die "Missing HDF5 for chromosome $CH: $H5_PATH"
+else
+  H5_PATH="$(find_h5_for_iids)"
 fi
-if [[ -z "$H5_PATH" || ! -f "$H5_PATH" ]]; then
-  # Fallback: any HDF5 under HDF5_ROOT.
-  H5_PATH="$(find "$(hdf5_root_norm)" -maxdepth 2 -type f -name '*.h5' | head -n 1 || true)"
-fi
-[[ -f "$H5_PATH" ]] || die "Missing HDF5 for IID extraction: $H5_PATH"
 
 HDF5_ROOT_NORM="$(hdf5_root_norm)"
 H5_REL="$(rel_under_hdf5 "$H5_PATH")"

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Run ancIBD for one chromosome from a prebuilt HDF5."""
-
 import argparse
 import os
 import tempfile

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Create an ancIBD HDF5 for one chromosome from a phased VCF/BCF."""
-
 import argparse
 from pathlib import Path
 

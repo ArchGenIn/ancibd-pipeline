@@ -175,7 +175,8 @@ main() {
 
   [[ -f "$CFG" ]] || die "Missing $CFG (copy from config/example.env)"
 
-  local bak="${CFG}.bak.$(ts_utc)"
+  local bak
+  bak="${CFG}.bak.$(ts_utc)"
   cp -- "$CFG" "$bak"
   cleanup() { cp -- "$bak" "$CFG" || true; }
   trap cleanup EXIT
@@ -188,7 +189,8 @@ main() {
   local summary_dir="$ROOT/runs/tuning"
   mkdir -p "$summary_dir"
 
-  local summary="$summary_dir/grid_$(ts_utc).tsv"
+  local summary
+  summary="$summary_dir/grid_$(ts_utc).tsv"
   echo -e "ts_utc\tbatch_size\tbp_maxjobs\tjobs_per_node\treq_cpus\treq_mem_mb\treq_disk_mb\trun_id\tdag_cluster\texpected\tcomplete\tpercent\tch_range\tduration_sec" > "$summary"
 
   echo "Writing summary to: $summary"

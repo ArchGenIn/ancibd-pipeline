@@ -95,3 +95,22 @@ vcf_1240k_path_for_ch() {
     echo "${HDF5_ROOT%/}/${HDF5_PREFIX}${HDF5_CH_LABEL}${ch}${HDF5_SUFFIX}${VCF_1240K_SUFFIX}"
   fi
 }
+
+find_h5_for_iids() {
+  local ch_range="${CH_RANGE:-20-20}"
+  local any_h5="" h5="" c
+  local ch_start ch_end
+
+  read -r ch_start ch_end < <(parse_ch_range "$ch_range")
+  for ((c=ch_start; c<=ch_end; c++)); do
+    h5="$(h5_path_for_ch "$c")"
+    if [[ -f "$h5" ]]; then
+      printf '%s\n' "$h5"
+      return 0
+    fi
+  done
+
+  any_h5="$(find "$(hdf5_root_norm)" -maxdepth 2 -type f -name '*.h5' | head -n 1 || true)"
+  [[ -n "$any_h5" ]] || die "No HDF5 files found under HDF5_ROOT ($(hdf5_root_norm))."
+  printf '%s\n' "$any_h5"
+}

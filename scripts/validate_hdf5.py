@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Lightweight validation for an ancIBD HDF5 file."""
-
 import argparse
 from pathlib import Path
 
