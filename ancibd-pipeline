@@ -29,34 +29,43 @@ Chromosome range resolution (all commands that accept CH_RANGE):
   4) fallback 1-22
 
 Core workflow:
-  baseline [CH_RANGE] [--pcol AF_ALL|RAF]
+  baseline [CH_RANGE] [--pcol AF_ALL|RAF|AF_REF]
       Dumb, slow, reference mode.
       Runs ancIBD per chromosome for CH_RANGE, then runs ancIBD-summary.
       Outputs: runs/<RUN_ID>/out/merged/{ch_all.tsv,ibd_ind.tsv}
       Requires RUN_ID.
 
-  prod [CH_RANGE] [--pcol AF_ALL|RAF]
+  prod [CH_RANGE] [--pcol AF_ALL|RAF|AF_REF]
       Concurrent production mode (batchpairs + merge) using HTCondor DAGMan.
       Outputs: runs/<RUN_ID>/out/merged/{ch_all.tsv,ibd_ind.tsv}
       Requires RUN_ID.
 
 Allele-frequency modes:
   --pcol AF_ALL (default)
-      Use *sample* allele frequencies stored in the HDF5 at variants/AF_ALL.
+      Use sample allele frequencies stored in the HDF5 at variants/AF_ALL.
 
   --pcol RAF
-      Use *reference* allele frequencies stored in the HDF5 at variants/RAF.
-      This requires building HDF5s with --with-raf.
+      Use the RAF field imported from the filtered VCF/BCF, stored in the HDF5
+      at variants/RAF if the input VCF/BCF provides it.
+
+  --pcol AF_REF
+      Use per-chromosome reference-AF TSVs baked into the HDF5 at
+      variants/AF_REF. This field is created only when the HDF5 build step is
+      run with --with-ref-af (or the backward-compatible alias --with-raf).
 
 Inputs:
-  build-hdf5 [CH_RANGE] [--force] [--with-raf] [--raf-path PATH]
+  build-hdf5 [CH_RANGE] [--force] [--with-ref-af] [--ref-af-path PATH]
       Build per-chromosome HDF5 inputs under HDF5_ROOT.
       Does NOT require RUN_ID.
-      If --with-raf is given, per-chrom reference AF TSVs are merged into
-      variants/RAF (template from config/local.env: RAF_TEMPLATE).
-      Use --raf-path to override that template (may include {CH}).
+      The build always computes sample AFs into variants/AF_ALL.
+      If --with-ref-af is given, per-chromosome reference-AF TSVs are merged
+      into variants/AF_REF.
+      The reference-AF template comes from config/local.env:
+      REF_AF_TEMPLATE (fallback: RAF_TEMPLATE).
+      Use --ref-af-path to override that template (may include {CH}).
+      Backward-compatible aliases: --with-raf and --raf-path.
 
-  build-hdf5-condor [CH_RANGE] [--force] [--with-raf] [--raf-path PATH]
+  build-hdf5-condor [CH_RANGE] [--force] [--with-ref-af] [--ref-af-path PATH]
       Same as build-hdf5, but submits one job per chromosome via HTCondor.
       Does NOT require RUN_ID.
 
@@ -83,7 +92,8 @@ normalize_pcol() {
   case "$v" in
     AF_ALL|AFALL|AF) echo "AF_ALL" ;;
     RAF) echo "RAF" ;;
-    *) die "Invalid --pcol value: $1 (expected AF_ALL or RAF)" ;;
+    AF_REF|AFREF|REF_AF|REFAF|REF) echo "AF_REF" ;;
+    *) die "Invalid --pcol value: $1 (expected AF_ALL, RAF, or AF_REF)" ;;
   esac
 }
 
@@ -130,18 +140,18 @@ case "$cmd" in
     CH_RANGE_CLI=""
     CH_RANGE_ENV="${CH_RANGE:-}"
     FORCE=0
-    WITH_RAF=0
-    RAF_PATH_OVERRIDE=""
+    WITH_REF_AF=0
+    REF_AF_PATH_OVERRIDE=""
 
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --force)
           FORCE=1; shift ;;
-        --with-raf)
-          WITH_RAF=1; shift ;;
-        --raf-path)
-          [[ -n "${2:-}" ]] || die "--raf-path requires a value"
-          RAF_PATH_OVERRIDE="$2"; WITH_RAF=1; shift 2 ;;
+        --with-ref-af|--with-raf)
+          WITH_REF_AF=1; shift ;;
+        --ref-af-path|--raf-path)
+          [[ -n "${2:-}" ]] || die "$1 requires a value"
+          REF_AF_PATH_OVERRIDE="$2"; WITH_REF_AF=1; shift 2 ;;
         *)
           if [[ "$1" =~ ^[0-9]+-[0-9]+$ ]]; then
             CH_RANGE_CLI="$1"; shift
@@ -159,10 +169,10 @@ case "$cmd" in
     if [[ $FORCE -eq 1 ]]; then
       EXTRA_ARGS+=(--force)
     fi
-    if [[ $WITH_RAF -eq 1 ]]; then
-      EXTRA_ARGS+=(--with-raf)
-      if [[ -n "$RAF_PATH_OVERRIDE" ]]; then
-        EXTRA_ARGS+=(--raf-path "$RAF_PATH_OVERRIDE")
+    if [[ $WITH_REF_AF -eq 1 ]]; then
+      EXTRA_ARGS+=(--with-ref-af)
+      if [[ -n "$REF_AF_PATH_OVERRIDE" ]]; then
+        EXTRA_ARGS+=(--ref-af-path "$REF_AF_PATH_OVERRIDE")
       fi
     fi
 
@@ -176,18 +186,18 @@ case "$cmd" in
     CH_RANGE_CLI=""
     CH_RANGE_ENV="${CH_RANGE:-}"
     FORCE=0
-    WITH_RAF=0
-    RAF_PATH_OVERRIDE=""
+    WITH_REF_AF=0
+    REF_AF_PATH_OVERRIDE=""
 
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --force)
           FORCE=1; shift ;;
-        --with-raf)
-          WITH_RAF=1; shift ;;
-        --raf-path)
-          [[ -n "${2:-}" ]] || die "--raf-path requires a value"
-          RAF_PATH_OVERRIDE="$2"; WITH_RAF=1; shift 2 ;;
+        --with-ref-af|--with-raf)
+          WITH_REF_AF=1; shift ;;
+        --ref-af-path|--raf-path)
+          [[ -n "${2:-}" ]] || die "$1 requires a value"
+          REF_AF_PATH_OVERRIDE="$2"; WITH_REF_AF=1; shift 2 ;;
         *)
           if [[ "$1" =~ ^[0-9]+-[0-9]+$ ]]; then
             CH_RANGE_CLI="$1"; shift
@@ -210,12 +220,12 @@ case "$cmd" in
       FORCE_ARG="--force"
     fi
 
-    RAF_ARGS=""
-    if [[ $WITH_RAF -eq 1 ]]; then
-      if [[ -n "$RAF_PATH_OVERRIDE" ]]; then
-        RAF_ARGS="--with-raf --raf-path $RAF_PATH_OVERRIDE"
+    REF_AF_ARGS=""
+    if [[ $WITH_REF_AF -eq 1 ]]; then
+      if [[ -n "$REF_AF_PATH_OVERRIDE" ]]; then
+        REF_AF_ARGS="--with-ref-af --ref-af-path $REF_AF_PATH_OVERRIDE"
       else
-        RAF_ARGS="--with-raf"
+        REF_AF_ARGS="--with-ref-af"
       fi
     fi
 
@@ -226,7 +236,7 @@ case "$cmd" in
         -append "HDF5_ROOT=$HDF5_ROOT" \
         -append "CH=$ch" \
         -append "FORCE_ARG=$FORCE_ARG" \
-        -append "RAF_ARGS=$RAF_ARGS" \
+        -append "REF_AF_ARGS=$REF_AF_ARGS" \
         "$ROOT/condor/ancibd_hdf5.sub"
     done
     ;;

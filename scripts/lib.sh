@@ -36,6 +36,12 @@ load_config() {
 
   VCF_1240K_SUFFIX="${VCF_1240K_SUFFIX:-.1240k.vcf.gz}"
 
+  # Optional standalone reference-AF template. The preferred config variable is
+  # REF_AF_TEMPLATE; RAF_TEMPLATE remains available as a backward-compatible alias.
+  if [[ -z "${REF_AF_TEMPLATE:-}" && -n "${RAF_TEMPLATE:-}" ]]; then
+    REF_AF_TEMPLATE="$RAF_TEMPLATE"
+  fi
+
   # --- HTCondor / DAGMan tuning ---
   # Optional global concurrency cap for prod batchpair nodes.
   # If BP_MAXJOBS is 0 or empty, no MAXJOBS line is emitted.

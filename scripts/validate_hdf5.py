@@ -5,11 +5,19 @@ Exit codes:
   0: looks OK
   2: missing/broken
 
-This is intentionally conservative: if anything looks off, we return 2 so the
+This is intentionally conservative: if anything looks off, return 2 so the
 wrapper can rebuild the file.
 """
 import argparse
 from pathlib import Path
+
+
+AF_KEYS = [
+    "variants/AF_ALL",
+    "variants/AF_SAMPLE",
+    "variants/RAF",
+    "variants/AF_REF",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,31 +36,22 @@ def main() -> None:
         import h5py  # type: ignore
 
         with h5py.File(path, "r") as f:
-            # Required-ish datasets for ancIBD.
-            #
-            # NOTE: We intentionally do *not* require an allele-frequency column here.
-            # ancIBD can calculate allele frequencies from the samples if no external AF
-            # is provided. (If present, we sanity-check that it has the right length.)
             required = [
                 "variants/POS",
                 "variants/MAP",
                 "calldata/GP",
             ]
-            for k in required:
-                if k not in f:
+            for key in required:
+                if key not in f:
                     raise SystemExit(2)
 
-            # If any AF columns exist, they should match variant count.
             n_var = f["variants/POS"].shape[0]
-            for af_key in ["variants/AF_ALL", "variants/AF_SAMPLE", "variants/RAF"]:
+            for af_key in AF_KEYS:
                 if af_key in f and f[af_key].shape[0] != n_var:
                     raise SystemExit(2)
 
-            # Samples are typically stored as a dataset called "samples".
             if "samples" not in f:
                 raise SystemExit(2)
-
-            # Very small sanity checks.
             if n_var == 0:
                 raise SystemExit(2)
             if f["calldata/GP"].shape[0] == 0:
@@ -65,7 +64,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except SystemExit as e:
-        raise
+    main()

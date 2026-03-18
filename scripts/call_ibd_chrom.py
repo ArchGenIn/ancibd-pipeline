@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Run ancIBD for one chromosome from a prebuilt HDF5.
 
-HDF5 inputs contain sample allele frequencies at variants/AF_ALL.
-Optional reference frequencies can be stored at variants/RAF.
-Select which one ancIBD uses with --pcol (AF_ALL or RAF).
+Expected allele-frequency fields:
 
-We call the ancIBD Python API so we can pass p_col explicitly.
-ancIBD writes ch<CH>.tsv; we rename it to <prefix>.ch<CH>.tsv so
-ancIBD-summary can consume a folder of per-chromosome TSVs.
+- ``variants/AF_ALL``: sample allele frequencies computed during HDF5 build
+- ``variants/RAF``: RAF field imported from the filtered VCF/BCF, when present
+- ``variants/AF_REF``: standalone reference-AF TSVs baked into the HDF5
+
+Select the field ancIBD should use with ``--pcol``.
 """
 import argparse
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import List, Tuple
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,7 +30,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--pcol",
         default="AF_ALL",
-        help="Which allele-frequency column to use: AF_ALL (sample, default) or RAF (reference)",
+        help=(
+            "Which allele-frequency column to use: AF_ALL (sample, default), "
+            "RAF (VCF-derived RAF), or AF_REF (standalone reference-AF TSV baked into the HDF5)"
+        ),
     )
     p.add_argument(
         "--iids-file",
@@ -88,24 +91,13 @@ def read_pairs(pairs_file: str) -> List[Tuple[str, str]]:
 
 
 def prepare_folder_in(h5_path: Path, ch: int, *, tmp_root: Path) -> tuple[str, Path]:
-    """Prepare an ancIBD-compatible folder_in prefix for an arbitrary HDF5 filename.
-
-    ancIBD's hapBLOCK_chroms expects a *prefix* (folder_in) and constructs the input
-    file as: folder_in + f"{ch}.h5".
-
-    If the provided HDF5 path does not match that naming scheme, we create a
-    temporary symlink that does. This lets the pipeline use HDF5s named like:
-      chr2.merged.1240k.20250825.h5
-    without renaming them.
-    """
+    """Prepare an ancIBD-compatible folder_in prefix for an arbitrary HDF5 filename."""
     import tempfile
 
     tmpdir = Path(tempfile.mkdtemp(prefix="ancibd_h5link_", dir=str(tmp_root)))
-    # Use a prefix that yields a file name ending in "{ch}.h5".
     prefix = str(tmpdir / "h5.")
     link_path = Path(f"{prefix}{ch}.h5")
     try:
-        # Absolute symlink is fine inside the container.
         link_path.symlink_to(h5_path)
     except FileExistsError:
         pass
@@ -118,14 +110,30 @@ def ensure_pcol_exists(h5_path: Path, pcol: str) -> None:
 
     with h5py.File(h5_path, "r") as f:
         if pcol not in f:
-            # Helpful hint for the common confusion.
             if pcol == "variants/RAF":
                 raise SystemExit(
                     f"Requested p_col={pcol} but it is missing in {h5_path}. "
-                    "Rebuild HDF5 with reference AFs (build-hdf5 --with-raf), "
-                    "or run with --pcol AF_ALL."
+                    "This HDF5 does not contain a VCF-derived RAF field. "
+                    "Run with --pcol AF_ALL or AF_REF instead."
+                )
+            if pcol == "variants/AF_REF":
+                raise SystemExit(
+                    f"Requested p_col={pcol} but it is missing in {h5_path}. "
+                    "Rebuild the HDF5 with --with-ref-af (or --with-raf), "
+                    "or run with --pcol AF_ALL or RAF."
                 )
             raise SystemExit(f"Requested p_col={pcol} but it is missing in {h5_path}.")
+
+
+def normalize_pcol(value: str) -> str:
+    pcol_norm = value.strip().upper()
+    if pcol_norm in {"AF_ALL", "AFALL", "AF"}:
+        return "variants/AF_ALL"
+    if pcol_norm == "RAF":
+        return "variants/RAF"
+    if pcol_norm in {"AF_REF", "AFREF", "REF_AF", "REFAF", "REF"}:
+        return "variants/AF_REF"
+    raise SystemExit(f"Invalid --pcol value: {value!r} (expected AF_ALL, RAF, or AF_REF)")
 
 
 def main() -> None:
@@ -138,31 +146,19 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    pcol_norm = args.pcol.strip().upper()
-    if pcol_norm in {"AF_ALL", "AFALL", "AF"}:
-        pcol = "variants/AF_ALL"
-    elif pcol_norm == "RAF":
-        pcol = "variants/RAF"
-    else:
-        raise SystemExit(f"Invalid --pcol value: {args.pcol!r} (expected AF_ALL or RAF)")
-
+    pcol = normalize_pcol(args.pcol)
     ensure_pcol_exists(h5_path, pcol)
 
-    # Import inside main so missing ancIBD gives a clean error.
     from ancIBD.run import hapBLOCK_chroms  # type: ignore
 
-    # Prepare an ancIBD folder_in prefix regardless of HDF5 naming.
     import os
+
     tmp_root = Path(os.environ.get("TMPDIR") or "/tmp")
     folder_in, tmpdir = prepare_folder_in(h5_path, args.ch, tmp_root=tmp_root)
 
     iids = read_iids(args.iids_file)
     run_iids = read_pairs(args.pairs_file)
 
-    # Run and save.
-    # NOTE: hapBLOCK_chroms always writes: <folder_out>/ch<CH>.tsv
-    # (prefix_out is treated as a *subfolder* by ancIBD). We keep prefix_out
-    # empty and rename the produced file to match the ancIBD CLI convention.
     try:
         hapBLOCK_chroms(
             folder_in=folder_in,
@@ -186,7 +182,6 @@ def main() -> None:
             max_gap=0.0075,
         )
     finally:
-        # Best-effort cleanup of the temporary symlink directory.
         try:
             for p in tmpdir.iterdir():
                 p.unlink(missing_ok=True)  # type: ignore[arg-type]
@@ -203,7 +198,6 @@ def main() -> None:
             "Check logs for ancIBD errors."
         )
 
-    # Overwrite final path if it already exists (idempotence / reruns).
     if final_path.exists():
         final_path.unlink()
 

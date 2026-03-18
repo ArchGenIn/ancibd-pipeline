@@ -2,7 +2,7 @@ universe              = vanilla
 getenv                = True
 should_transfer_files = NO
 executable            = /bin/bash
-arguments             = "-lc 'cd $(ROOT) && ./scripts/build_hdf5.sh $(CH) $(FORCE_ARG) $(RAF_ARGS)'"
+arguments             = "-lc 'cd $(ROOT) && ./scripts/build_hdf5.sh $(CH) $(FORCE_ARG) $(REF_AF_ARGS)'"
 
 request_cpus   = 1
 request_memory = 3GB

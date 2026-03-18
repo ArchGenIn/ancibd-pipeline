@@ -46,8 +46,8 @@ This supports workflows where you start from prebuilt HDF5s and do not have
 the original VCF/BCF inputs available.
 
 If you change the HDF5 inputs, regenerate the IID list by deleting
-`runs/<RUN_ID>/meta/iids.txt` and re-running a command (baseline/prod) that
-needs it.
+`runs/<RUN_ID>/meta/iids.txt` and re-running a command (`baseline` or `prod`)
+that needs it.
 
 ## HDF5 naming
 
@@ -64,10 +64,28 @@ If you prefer, you can instead set `HDF5_TEMPLATE` (and optionally
 
 ## Local cloud emulation (HTCondor + shared filesystem)
 
-If you want to emulate a shared-filesystem HTCondor cloud locally (e.g. via Multipass)
-before running on a real cluster, see:
+If you want to emulate a shared-filesystem HTCondor cloud locally (for example
+via Multipass) before running on a real cluster, see:
 
 - `docs/local_cloud_emulation.md`
+
+## Allele-frequency fields in the HDF5
+
+The pipeline can keep up to three allele-frequency datasets side by side:
+
+- `variants/AF_ALL` – sample allele frequencies computed from the input data
+- `variants/RAF` – RAF imported from the filtered VCF/BCF when the input file provides it
+- `variants/AF_REF` – standalone reference-AF TSVs merged into the HDF5 by the pipeline
+
+`--pcol` selects which field ancIBD uses at runtime:
+
+- `--pcol AF_ALL` → `variants/AF_ALL`
+- `--pcol RAF` → `variants/RAF`
+- `--pcol AF_REF` → `variants/AF_REF`
+
+`--pcol RAF` does not use `REF_AF_TEMPLATE` or `RAF_TEMPLATE`. It reads the
+VCF-derived `variants/RAF` field already present in the HDF5, if that field
+exists.
 
 ## Build HDF5 inputs
 
@@ -77,27 +95,40 @@ Build HDF5s for a chromosome range (example: chr20 only):
 ./ancibd-pipeline build-hdf5 20-20
 ```
 
-By default, the build computes **sample allele frequencies** and stores them in
-`variants/AF_ALL` inside the HDF5. This is the default `--pcol AF_ALL` mode.
+This always computes **sample allele frequencies** and stores them in
+`variants/AF_ALL`.
 
-If you also want **reference allele frequencies** available at `variants/RAF`
-(for `--pcol RAF`), build with:
+If your filtered VCF/BCF carries a `RAF` field, that field is imported into the
+HDF5 as `variants/RAF` automatically during HDF5 creation.
+
+To also bake standalone per-chromosome reference-AF TSVs into the HDF5, use:
+
+```bash
+./ancibd-pipeline build-hdf5 1-22 --with-ref-af
+```
+
+This writes the TSV-based AFs to `variants/AF_REF`. The template comes from
+`REF_AF_TEMPLATE` in `config/local.env`. `RAF_TEMPLATE` is still accepted as a
+backward-compatible alias.
+
+Override the template on the command line:
+
+```bash
+./ancibd-pipeline build-hdf5 1-22 --with-ref-af --ref-af-path "/path/to/v51.1_1240k_AF_ch{CH}.tsv"
+```
+
+Backward-compatible aliases are also accepted:
 
 ```bash
 ./ancibd-pipeline build-hdf5 1-22 --with-raf
-```
-
-This uses the per-chromosome AF TSV template `RAF_TEMPLATE` from `config/local.env`. You can override it:
-
-```bash
 ./ancibd-pipeline build-hdf5 1-22 --with-raf --raf-path "/path/to/v51.1_1240k_AF_ch{CH}.tsv"
 ```
 
-Or submit as one Condor job per chromosome:
+Submit HDF5 builds as one Condor job per chromosome:
 
 ```bash
 ./ancibd-pipeline build-hdf5-condor 1-22
-./ancibd-pipeline build-hdf5-condor 1-22 --with-raf
+./ancibd-pipeline build-hdf5-condor 1-22 --with-ref-af
 ```
 
 Validate the expected HDF5s:
@@ -113,11 +144,15 @@ RUN_ID="$(./ancibd-pipeline new-run baseline)"; export RUN_ID
 ./ancibd-pipeline baseline 20-20
 ```
 
-To run using **reference allele frequencies** (requires building HDF5s with `--with-raf`):
+Use a different AF field at runtime with `--pcol`:
 
 ```bash
 ./ancibd-pipeline baseline 20-20 --pcol RAF
+./ancibd-pipeline baseline 20-20 --pcol AF_REF
 ```
+
+`--pcol AF_REF` requires building the HDF5s with `--with-ref-af` (or the
+backward-compatible alias `--with-raf`).
 
 This runs ancIBD per chromosome and then runs `ancIBD-summary`.
 
@@ -133,10 +168,11 @@ RUN_ID="$(./ancibd-pipeline new-run prod)"; export RUN_ID
 ./ancibd-pipeline prod 20-20
 ```
 
-Same allele-frequency selector works in `prod`:
+The same allele-frequency selector works in `prod`:
 
 ```bash
 ./ancibd-pipeline prod 20-20 --pcol RAF
+./ancibd-pipeline prod 20-20 --pcol AF_REF
 ```
 
 Monitor with:
@@ -146,7 +182,33 @@ condor_q
 ./ancibd-pipeline check-batch
 ```
 
-When the DAG finishes, `runs/<RUN_ID>/DONE` is written and merged outputs are in `out/merged/`.
+When the DAG finishes, `runs/<RUN_ID>/DONE` is written and merged outputs are
+in `out/merged/`.
+
+## Tuning helper for HTCondor grid sweeps
+
+`scripts/tune_grid.sh` runs a small grid of `BATCH_SIZE` and `BP_MAXJOBS`
+settings for a fixed time budget per point. It is useful for comparing
+throughput across candidate settings without waiting for full runs.
+
+Key properties:
+
+- edits `config/local.env` temporarily and restores it on exit
+- derives request sizes from the current Condor pool baseline
+- writes a summary TSV under `runs/tuning/`
+- removes each DAG after the time budget expires
+
+Examples:
+
+```bash
+./scripts/tune_grid.sh
+CH_RANGE=2-2 PCOL=AF_REF DURATION_SEC=600 ./scripts/tune_grid.sh
+./scripts/tune_grid.sh --help
+```
+
+More detail is in:
+
+- `docs/tune_grid.md`
 
 ## Compare baseline vs prod
 
@@ -155,7 +217,7 @@ When the DAG finishes, `runs/<RUN_ID>/DONE` is written and merged outputs are in
   <RUN_BASE>/out/merged \
   <RUN_PROD>/out/merged
 
-# You can also pass absolute paths or repo-root-relative paths (e.g. runs/<RUN_ID>/...).
+# You can also pass absolute paths or repo-root-relative paths (for example runs/<RUN_ID>/...).
 ```
 
 The comparison is order-insensitive (ignores header and row order).
