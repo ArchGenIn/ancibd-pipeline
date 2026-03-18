@@ -60,9 +60,22 @@ write_run_options() {
 ' "$pcol" > "$run_dir/meta/options.env"
 }
 
+dir_has_entries() {
+  local dir="$1"
+  [[ -d "$dir" ]] && find "$dir" -mindepth 1 -print -quit | grep -q .
+}
+
 prepare_run_dirs() {
   local run_dir="$1"
   [[ -e "$run_dir/DONE" ]] && die "Run is DONE: $run_dir"
+  if dir_has_entries "$run_dir/work"; then
+    die "Run workdir is not empty: $run_dir/work
+Create a new RUN_ID with: ./ancibd-pipeline new-run <tag>"
+  fi
+  if dir_has_entries "$run_dir/out"; then
+    die "Run outdir is not empty: $run_dir/out
+Create a new RUN_ID with: ./ancibd-pipeline new-run <tag>"
+  fi
   mkdir -p "$run_dir"/{meta,work,out,logs,logs/condor}
   "$ROOT/scripts/write_manifest.sh"
 }
@@ -265,18 +278,7 @@ case "$cmd" in
     RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
 
     RUN_DIR="$RUNS_ROOT/$RUN_ID"
-    [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
-    if [[ -d "$RUN_DIR/work" ]] && find "$RUN_DIR/work" -type f -print -quit | grep -q .; then
-      die "Run workdir is not empty: $RUN_DIR/work
-Create a new RUN_ID with: ./ancibd-pipeline new-run <tag>"
-    fi
-    if [[ -d "$RUN_DIR/out" ]] && find "$RUN_DIR/out" -type f -print -quit | grep -q .; then
-      die "Run outdir is not empty: $RUN_DIR/out
-Create a new RUN_ID with: ./ancibd-pipeline new-run <tag>"
-    fi
-
-    mkdir -p "$RUN_DIR"/{meta,work,out,logs}
-    "$ROOT/scripts/write_manifest.sh"
+    prepare_run_dirs "$RUN_DIR"
     write_run_options "$RUN_DIR" "$PCOL"
 
     read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE_USE")

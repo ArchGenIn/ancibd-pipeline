@@ -17,6 +17,7 @@ Modes:
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from typing import Iterable
 
 
@@ -34,30 +35,31 @@ class Job:
 def read_iids(path: Path) -> list[str]:
     items: list[str] = []
     seen: set[str] = set()
+    duplicate_count = 0
+    duplicate_examples: list[str] = []
     for raw in path.read_text(encoding="utf-8").splitlines():
         s = raw.strip()
         if not s or s.startswith("#"):
             continue
         iid = s.split()[0]
         if iid in seen:
+            duplicate_count += 1
+            if len(duplicate_examples) < 10 and iid not in duplicate_examples:
+                duplicate_examples.append(iid)
             continue
         items.append(iid)
         seen.add(iid)
+    if duplicate_count:
+        preview = ", ".join(duplicate_examples)
+        noun = "entry" if duplicate_count == 1 else "entries"
+        suffix = f" ({preview})" if preview else ""
+        print(
+            f"Note: dropped {duplicate_count} duplicate IID {noun} while reading {path}{suffix}",
+            file=sys.stderr,
+        )
     if not items:
         raise SystemExit(f"IID list is empty: {path}")
     return items
-
-
-def validate_unique(iids: list[str], label: str) -> None:
-    seen: set[str] = set()
-    dupes: list[str] = []
-    for iid in iids:
-        if iid in seen and iid not in dupes:
-            dupes.append(iid)
-        seen.add(iid)
-    if dupes:
-        preview = ", ".join(dupes[:10])
-        raise SystemExit(f"Duplicate IIDs in {label}: {preview}")
 
 
 def batch_slices(iids: list[str], batch_size: int) -> list[list[str]]:
@@ -233,7 +235,6 @@ def main() -> int:
         raise SystemExit("--batch-size must be > 0")
 
     iids = read_iids(args.iids)
-    validate_unique(iids, args.iids.as_posix())
     batches = batch_slices(iids, args.batch_size)
 
     if args.mode == "all":
@@ -242,7 +243,6 @@ def main() -> int:
         if args.delta_iids is None or args.delta_kind is None:
             raise SystemExit("incremental mode requires --delta-iids and --delta-kind")
         listed = read_iids(args.delta_iids)
-        validate_unique(listed, args.delta_iids.as_posix())
         global_iids = set(iids)
         unknown = [iid for iid in listed if iid not in global_iids]
         if unknown:

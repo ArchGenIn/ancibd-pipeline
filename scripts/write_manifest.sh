@@ -10,8 +10,8 @@ RUN_DIR="$RUNS_ROOT/$RUN_ID"
 mkdir -p "$RUN_DIR"
 
 # In concurrent workflows (batchpair jobs), many jobs may try to write the
-# manifest simultaneously. The manifest is intended to be run-level metadata,
-# so treat it as write-once.
+# manifest simultaneously. The manifest is run-level metadata, so write it at
+# most once and never replace an existing file.
 if [[ -s "$RUN_DIR/manifest.txt" ]]; then
   exit 0
 fi
@@ -33,10 +33,9 @@ trap cleanup EXIT
   apptainer exec --cleanenv "$SIF_IMAGE" bcftools --version | head -n 1 || true
 } > "$tmp"
 
-# Avoid clobbering if another concurrent job already wrote the manifest.
-if [[ ! -s "$RUN_DIR/manifest.txt" ]]; then
-  mv "$tmp" "$RUN_DIR/manifest.txt"
-fi
+# ln(1) is atomic for creating a new path in the same directory. If another
+# concurrent job wins the race, keep the existing manifest and discard ours.
+ln "$tmp" "$RUN_DIR/manifest.txt" 2>/dev/null || true
 
 cleanup
 trap - EXIT

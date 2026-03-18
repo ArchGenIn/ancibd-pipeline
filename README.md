@@ -157,6 +157,8 @@ The planner still uses `BATCH_SIZE` to define coarse sample batches, but it emit
 
 The resolved target IID set is written to `runs/<RUN_ID>/meta/target_iids.txt`.
 
+Input IID lists are deduplicated automatically while preserving first-seen order. Duplicate entries are reported on stderr and then ignored.
+
 To prepare the target IID file for an incremental run from a previous full analysis, use:
 
 ```bash
