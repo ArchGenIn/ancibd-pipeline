@@ -38,6 +38,18 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }
 
+abs_path() {
+  local p="$1"
+  if [[ -d "$p" ]]; then
+    (cd "$p" && pwd)
+  else
+    local dir base
+    dir="$(dirname "$p")"
+    base="$(basename "$p")"
+    (cd "$dir" && printf '%s/%s\n' "$(pwd)" "$base")
+  fi
+}
+
 require_batchpair_requests() {
   [[ -n "${BP_REQUEST_CPUS:-}" ]] || die "BP_REQUEST_CPUS not set in config/local.env"
   [[ -n "${BP_REQUEST_MEMORY:-}" ]] || die "BP_REQUEST_MEMORY not set in config/local.env"

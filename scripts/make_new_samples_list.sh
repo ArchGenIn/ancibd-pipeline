@@ -4,7 +4,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib.sh"
 load_config
 require_cmd apptainer
-require_cmd python3
 
 usage() {
   cat <<'USAGE'
@@ -54,9 +53,13 @@ RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run prod-increme
 H5_PATH="$(find_h5_for_iids)"
 HDF5_ROOT_NORM="$(hdf5_root_norm)"
 H5_REL="$(rel_under_hdf5 "$H5_PATH")"
+ANALYZED_IIDS_ABS="$(abs_path "$ANALYZED_IIDS")"
+ANALYZED_IIDS_PARENT="$(dirname "$ANALYZED_IIDS_ABS")"
+ANALYZED_IIDS_BASE="$(basename "$ANALYZED_IIDS_ABS")"
 
 mkdir -p "$OUTDIR"
-OUT_PATH="${OUTDIR%/}/${RUN_ID}_new_samples.txt"
+OUTDIR_ABS="$(abs_path "$OUTDIR")"
+OUT_PATH="${OUTDIR_ABS%/}/${RUN_ID}_new_samples.txt"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -70,51 +73,18 @@ apptainer exec --cleanenv \
     "/work/hdf5/$H5_REL" \
     --out "/work/tmp/hdf5_iids.txt"
 
-python3 - "$ANALYZED_IIDS" "$TMP_DIR/hdf5_iids.txt" "$OUT_PATH" <<'PY'
-from pathlib import Path
-import sys
+apptainer exec --cleanenv \
+  --bind "$ROOT:/work/repo:ro" \
+  --bind "$ANALYZED_IIDS_PARENT:/work/analyzed:ro" \
+  --bind "$TMP_DIR:/work/tmp:ro" \
+  --bind "$OUTDIR_ABS:/work/out" \
+  --pwd /work \
+  "$SIF_IMAGE" \
+  python3 /work/repo/scripts/compare_iid_lists.py \
+    --analyzed-iids "/work/analyzed/$ANALYZED_IIDS_BASE" \
+    --hdf5-iids "/work/tmp/hdf5_iids.txt" \
+    --out "/work/out/${RUN_ID}_new_samples.txt"
 
-def read_iids(path: Path) -> list[str]:
-    items: list[str] = []
-    seen: set[str] = set()
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        s = raw.strip()
-        if not s or s.startswith("#"):
-            continue
-        iid = s.split()[0]
-        if iid in seen:
-            continue
-        items.append(iid)
-        seen.add(iid)
-    return items
-
-analyzed_path = Path(sys.argv[1])
-hdf5_path = Path(sys.argv[2])
-out_path = Path(sys.argv[3])
-
-analyzed = read_iids(analyzed_path)
-hdf5_iids = read_iids(hdf5_path)
-hdf5_set = set(hdf5_iids)
-analyzed_set = set(analyzed)
-unknown = [iid for iid in analyzed if iid not in hdf5_set]
-new_samples = [iid for iid in hdf5_iids if iid not in analyzed_set]
-
-out_path.write_text("".join(f"{iid}\n" for iid in new_samples), encoding="utf-8")
-
-if unknown:
-    preview = ", ".join(unknown[:10])
-    extra = "" if len(unknown) <= 10 else ", ..."
-    print(
-        f"WARNING: analyzed IID file contains {len(unknown)} IID(s) not present in the HDF5 sample list: {preview}{extra}",
-        file=sys.stderr,
-    )
-elif len(analyzed_set) == len(hdf5_set):
-    print(
-        "WARNING: analyzed IID file equals the HDF5 sample list; the output new-sample list is empty.",
-        file=sys.stderr,
-    )
-
-print(f"Wrote {out_path} (n={len(new_samples)})")
-PY
+[[ -s "$OUT_PATH" ]] || die "New-sample list was not created or is empty: $OUT_PATH"
 
 echo "Source HDF5: $H5_PATH"

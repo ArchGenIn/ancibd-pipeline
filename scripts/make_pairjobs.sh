@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib.sh"
 load_config
-require_cmd python3
+require_cmd apptainer
 
 usage() {
   cat <<'USAGE'
@@ -55,24 +55,41 @@ mkdir -p "$RUN_DIR/meta" "$PLANS_DIR"
 find "$PLANS_DIR" -maxdepth 1 \( -name '*.iids' -o -name '*.pairs' \) -delete
 rm -f "$OUT" "$RUN_DIR/meta/target_iids.txt" "$RUN_DIR/meta/incremental.env" "$RUN_DIR/meta/incremental_source_iids.txt"
 
+APPTAINER_BIND_ARGS=(
+  --bind "$ROOT:/work/repo:ro"
+  --bind "$RUN_DIR:/work/run"
+)
+
 ARGS=(
-  --iids "$RUN_DIR/meta/iids.txt"
+  --iids "/work/run/meta/iids.txt"
   --batch-size "$BATCH_SIZE"
   --mode "$MODE"
-  --plans-dir "$PLANS_DIR"
-  --out-jobs "$OUT"
+  --plans-dir "/work/run/work/plans"
+  --out-jobs "/work/run/meta/pairjobs.tsv"
 )
 
 if [[ "$MODE" == "incremental" ]]; then
-  cp "$DELTA_IIDS" "$RUN_DIR/meta/incremental_source_iids.txt"
+  DELTA_IIDS_ABS="$(abs_path "$DELTA_IIDS")"
+  DELTA_IIDS_PARENT="$(dirname "$DELTA_IIDS_ABS")"
+  DELTA_IIDS_BASE="$(basename "$DELTA_IIDS_ABS")"
+
+  cp "$DELTA_IIDS_ABS" "$RUN_DIR/meta/incremental_source_iids.txt"
   printf 'DELTA_KIND=%s\n' "$DELTA_KIND" > "$RUN_DIR/meta/incremental.env"
+
+  APPTAINER_BIND_ARGS+=(
+    --bind "$DELTA_IIDS_PARENT:/work/delta-src:ro"
+  )
   ARGS+=(
-    --delta-iids "$DELTA_IIDS"
+    --delta-iids "/work/delta-src/$DELTA_IIDS_BASE"
     --delta-kind "$DELTA_KIND"
-    --out-target-iids "$RUN_DIR/meta/target_iids.txt"
+    --out-target-iids "/work/run/meta/target_iids.txt"
   )
 fi
 
-python3 "$ROOT/scripts/make_pairjobs.py" "${ARGS[@]}"
+apptainer exec --cleanenv \
+  "${APPTAINER_BIND_ARGS[@]}" \
+  --pwd /work \
+  "$SIF_IMAGE" \
+  python3 /work/repo/scripts/make_pairjobs.py "${ARGS[@]}"
 
 echo "Wrote $OUT"

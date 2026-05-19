@@ -5,8 +5,8 @@ executable            = /bin/bash
 arguments             = "-lc 'cd $(ROOT) && RUN_ID=$(RUN_ID) ./scripts/merge_batch_outputs.sh'"
 
 request_cpus   = 1
-request_memory = 2GB
-request_disk   = 1GB
+request_memory = 32GB
+request_disk   = 4GB
 
 log    = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/merge.log
 output = $(RUNS_ROOT)/$(RUN_ID)/logs/condor/merge.out
