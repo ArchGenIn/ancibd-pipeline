@@ -11,7 +11,9 @@ RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 [[ -e "$RUN_DIR/DONE" ]] && die "Run is DONE: $RUN_DIR"
 
-mkdir -p "$RUN_DIR"/{meta,work,out,logs}
+TMP_DIR_HOST="$RUN_DIR/tmp/chrom/ch$CH"
+TMP_DIR_CONT="/work/run/tmp/chrom/ch$CH"
+mkdir -p "$RUN_DIR"/{meta,work,out,logs} "$TMP_DIR_HOST"
 "$ROOT/scripts/write_manifest.sh"
 
 # Run-level overrides written by ./ancibd-pipeline baseline/prod.
@@ -39,6 +41,9 @@ apptainer exec --cleanenv \
   --bind "$ROOT:/work/repo:ro" \
   --bind "$HDF5_ROOT_NORM:/work/hdf5:ro" \
   --bind "$RUN_DIR:/work/run" \
+  --env "TMPDIR=$TMP_DIR_CONT" \
+  --env "TMP=$TMP_DIR_CONT" \
+  --env "TEMP=$TMP_DIR_CONT" \
   --pwd /work \
   "$SIF_IMAGE" \
   python3 /work/repo/scripts/call_ibd_chrom.py \
@@ -47,5 +52,6 @@ apptainer exec --cleanenv \
     --out-dir "/work/run/work" \
     --prefix "$PREFIX" \
     --pcol "$PCOL" \
+    --tmp-root "$TMP_DIR_CONT" \
     --iids-file "/work/run/meta/iids.txt" \
   >"$RUN_DIR/logs/ch${CH}.out" 2>"$RUN_DIR/logs/ch${CH}.err"

@@ -49,6 +49,7 @@ done
 [[ -n "$ANALYZED_IIDS" ]] || die "--analyzed-iids is required"
 [[ -f "$ANALYZED_IIDS" ]] || die "Missing analyzed IID file: $ANALYZED_IIDS"
 RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run prod-incremental)}"
+RUN_DIR="$RUNS_ROOT/$RUN_ID"
 
 H5_PATH="$(find_h5_for_iids)"
 HDF5_ROOT_NORM="$(hdf5_root_norm)"
@@ -60,7 +61,8 @@ ANALYZED_IIDS_BASE="$(basename "$ANALYZED_IIDS_ABS")"
 mkdir -p "$OUTDIR"
 OUTDIR_ABS="$(abs_path "$OUTDIR")"
 OUT_PATH="${OUTDIR_ABS%/}/${RUN_ID}_new_samples.txt"
-TMP_DIR="$(mktemp -d)"
+mkdir -p "$RUN_DIR/tmp"
+TMP_DIR="$(mktemp -d "$RUN_DIR/tmp/new_samples.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 apptainer exec --cleanenv \

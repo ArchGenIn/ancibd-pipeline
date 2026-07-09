@@ -57,7 +57,9 @@ if [[ $WITH_REF_AF -eq 1 ]]; then
 fi
 
 TMP_H5="$H5_PATH.tmp"
-mkdir -p "$(dirname "$H5_PATH")" "$(dirname "$VCF_1240K_PATH")"
+TMP_DIR_HOST="$HDF5_ROOT/tmp/build_hdf5/ch$CH"
+TMP_DIR_CONT="/work/hdf5/tmp/build_hdf5/ch$CH"
+mkdir -p "$(dirname "$H5_PATH")" "$(dirname "$VCF_1240K_PATH")" "$TMP_DIR_HOST"
 
 echo "[build_hdf5] Building HDF5 for ch$CH"
 echo "[build_hdf5] Input  : $VCF_PATH"
@@ -78,6 +80,9 @@ apptainer exec --cleanenv \
   --bind "$ROOT:/work/repo:ro" \
   --bind "$DATA_ROOT_NORM:/work/data:ro" \
   --bind "$HDF5_ROOT_NORM:/work/hdf5" \
+  --env "TMPDIR=$TMP_DIR_CONT" \
+  --env "TMP=$TMP_DIR_CONT" \
+  --env "TEMP=$TMP_DIR_CONT" \
   --pwd /work \
   "$SIF_IMAGE" \
   python3 /work/repo/scripts/create_hdf5_from_vcf.py \
@@ -95,6 +100,9 @@ apptainer exec --cleanenv \
 if apptainer exec --cleanenv \
     --bind "$ROOT:/work/repo:ro" \
     --bind "$HDF5_ROOT_NORM:/work/hdf5:ro" \
+    --env "TMPDIR=$TMP_DIR_CONT" \
+    --env "TMP=$TMP_DIR_CONT" \
+    --env "TEMP=$TMP_DIR_CONT" \
     --pwd /work \
     "$SIF_IMAGE" \
     python3 /work/repo/scripts/validate_hdf5.py "/work/hdf5/$H5_REL" >/dev/null; then

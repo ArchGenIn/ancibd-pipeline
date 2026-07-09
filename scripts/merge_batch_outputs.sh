@@ -79,6 +79,9 @@ for job_id in "${job_ids[@]}"; do
 done
 
 mkdir -p "$OUT_BASE/merged"
+MERGE_TMP_HOST="$RUN_DIR/tmp/merge"
+MERGE_TMP_CONT="/work/run/tmp/merge"
+mkdir -p "$MERGE_TMP_HOST"
 
 to_cont_path() {
   local host_path="$1"
@@ -100,21 +103,25 @@ merge_one() {
 
   [[ ${#inputs_host[@]} -gt 0 ]] || die "No input files found for $name under: $OUT_BASE"
 
-  local out_cont
+  local out_cont input_list_host input_list_cont h
   out_cont="$(to_cont_path "$out_host")"
+  input_list_host="$MERGE_TMP_HOST/${name}.inputs.txt"
+  input_list_cont="$MERGE_TMP_CONT/${name}.inputs.txt"
 
-  local inputs_cont=()
-  local h
+  : > "$input_list_host"
   for h in "${inputs_host[@]}"; do
-    inputs_cont+=("$(to_cont_path "$h")")
+    printf '%s\n' "$(to_cont_path "$h")" >> "$input_list_host"
   done
 
   apptainer exec --cleanenv \
     --bind "$ROOT:/work/repo:ro" \
     --bind "$RUN_DIR:/work/run" \
+    --env "TMPDIR=$MERGE_TMP_CONT" \
+    --env "TMP=$MERGE_TMP_CONT" \
+    --env "TEMP=$MERGE_TMP_CONT" \
     --pwd /work \
     "$SIF_IMAGE" \
-    python3 /work/repo/scripts/merge_tsvs.py --out "$out_cont" "${inputs_cont[@]}"
+    python3 /work/repo/scripts/merge_tsvs.py --out "$out_cont" --input-list "$input_list_cont"
 
   [[ -s "$out_host" ]] || die "Merged file is empty: $out_host"
 }

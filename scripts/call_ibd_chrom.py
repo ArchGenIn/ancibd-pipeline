@@ -21,6 +21,11 @@ def parse_args() -> argparse.Namespace:
         help="Optional file with IID pairs in two whitespace-separated columns.",
     )
     p.add_argument("--min-cm", type=float, default=6.0, help="Minimum IBD segment length in cM.")
+    p.add_argument(
+        "--tmp-root",
+        default="",
+        help="Directory for the temporary ancIBD HDF5 symlink folder. Defaults to TMPDIR, then /tmp.",
+    )
     return p.parse_args()
 
 
@@ -105,7 +110,8 @@ def main() -> None:
 
     from ancIBD.run import hapBLOCK_chroms  # type: ignore
 
-    tmp_root = Path(os.environ.get("TMPDIR") or "/tmp")
+    tmp_root = Path(args.tmp_root or os.environ.get("TMPDIR") or "/tmp")
+    tmp_root.mkdir(parents=True, exist_ok=True)
     folder_in, tmpdir = prepare_folder_in(h5_path, args.ch, tmp_root=tmp_root)
     iids = read_iids(args.iids_file)
     run_iids = read_pairs(args.pairs_file)

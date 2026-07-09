@@ -31,7 +31,9 @@ PAIR_FILE_HOST="$RUN_DIR/work/plans/${JOB_ID}.pairs"
 WORK_DIR="$RUN_DIR/work/$JOB_ID"
 OUT_DIR="$RUN_DIR/out/$JOB_ID"
 LOG_DIR="$RUN_DIR/logs/$JOB_ID"
-mkdir -p "$WORK_DIR" "$OUT_DIR" "$LOG_DIR"
+TMP_DIR_HOST="$RUN_DIR/tmp/batchpair/$JOB_ID"
+TMP_DIR_CONT="/work/run/tmp/batchpair/$JOB_ID"
+mkdir -p "$WORK_DIR" "$OUT_DIR" "$LOG_DIR" "$TMP_DIR_HOST"
 
 if [[ -f "$OUT_DIR/DONE" ]]; then
   echo "Job already DONE: $JOB_ID"
@@ -46,10 +48,36 @@ for ((ch=CH_START; ch<=CH_END; ch++)); do
   [[ -f "$H5_PATH" ]] || die "Missing HDF5 for ch${ch}: $H5_PATH (build it first: ./ancibd-pipeline build-hdf5 ${CH_RANGE_RUN})"
   H5_REL="$(rel_under_hdf5 "$H5_PATH")"
 
-  apptainer exec --cleanenv     --bind "$ROOT:/work/repo:ro"     --bind "$HDF5_ROOT_NORM:/work/hdf5:ro"     --bind "$RUN_DIR:/work/run"     --pwd /work     "$SIF_IMAGE"     python3 /work/repo/scripts/call_ibd_chrom.py       --h5 "/work/hdf5/$H5_REL"       --ch "$ch"       --out-dir "/work/run/work/$JOB_ID"       --prefix "$PREFIX"       --pcol "$PCOL"       --iids-file "/work/run/work/plans/${JOB_ID}.iids"       --pairs-file "/work/run/work/plans/${JOB_ID}.pairs"     >"$LOG_DIR/ch${ch}.out" 2>"$LOG_DIR/ch${ch}.err"
+  apptainer exec --cleanenv \
+    --bind "$ROOT:/work/repo:ro" \
+    --bind "$HDF5_ROOT_NORM:/work/hdf5:ro" \
+    --bind "$RUN_DIR:/work/run" \
+    --env "TMPDIR=$TMP_DIR_CONT" \
+    --env "TMP=$TMP_DIR_CONT" \
+    --env "TEMP=$TMP_DIR_CONT" \
+    --pwd /work
+    "$SIF_IMAGE"
+    python3 /work/repo/scripts/call_ibd_chrom.py \
+      --h5 "/work/hdf5/$H5_REL" \
+      --ch "$ch" \
+      --out-dir "/work/run/work/$JOB_ID" \
+      --prefix "$PREFIX" \
+      --pcol "$PCOL" \
+      --tmp-root "$TMP_DIR_CONT" \
+      --iids-file "/work/run/work/plans/${JOB_ID}.iids" \
+      --pairs-file "/work/run/work/plans/${JOB_ID}.pairs" \
+    >"$LOG_DIR/ch${ch}.out" 2>"$LOG_DIR/ch${ch}.err"
 done
 
-apptainer exec --cleanenv   --bind "$RUN_DIR:/work/run"   --pwd /work   "$SIF_IMAGE"   ancIBD-summary     --tsv "/work/run/work/$JOB_ID/${PREFIX}.ch"     --ch "$CH_RANGE_RUN"     --out "/work/run/out/$JOB_ID"   >"$LOG_DIR/summary.out" 2>"$LOG_DIR/summary.err"
+apptainer exec --cleanenv \
+  --bind "$RUN_DIR:/work/run" \
+  --pwd /work \
+  "$SIF_IMAGE" \
+  ancIBD-summary\
+    --tsv "/work/run/work/$JOB_ID/${PREFIX}.ch" \
+    --ch "$CH_RANGE_RUN" \
+    --out "/work/run/out/$JOB_ID" \
+  >"$LOG_DIR/summary.out" 2>"$LOG_DIR/summary.err"
 
 if [[ ! -f "$OUT_DIR/ch_all.tsv" || ! -f "$OUT_DIR/ibd_ind.tsv" ]]; then
   echo "ERROR: ancIBD-summary did not produce expected outputs in: $OUT_DIR" >&2

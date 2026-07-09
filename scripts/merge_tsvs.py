@@ -69,14 +69,35 @@ def merge_tsv(inputs: list[Path], out_path: Path) -> tuple[int, int]:
     return used_files, data_lines
 
 
+def read_input_list(path: Path) -> list[Path]:
+    inputs: list[Path] = []
+    with path.open("r", encoding="utf-8") as fh:
+        for raw in fh:
+            s = raw.strip()
+            if not s or s.startswith("#"):
+                continue
+            inputs.append(Path(s))
+    return inputs
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("inputs", nargs="+", type=Path)
+    ap.add_argument(
+        "--input-list",
+        type=Path,
+        default=None,
+        help="Optional newline-delimited file containing input TSV paths. Useful when there are too many inputs for argv.",
+    )
+    ap.add_argument("inputs", nargs="*", type=Path)
     args = ap.parse_args(argv)
 
+    inputs: list[Path] = list(args.inputs)
+    if args.input_list is not None:
+        inputs.extend(read_input_list(args.input_list))
+
     try:
-        used, data = merge_tsv(args.inputs, args.out)
+        used, data = merge_tsv(inputs, args.out)
     except Exception as e:
         print(f"merge_tsvs.py: ERROR: {e}", file=sys.stderr)
         return 2
