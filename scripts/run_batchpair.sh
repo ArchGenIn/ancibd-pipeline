@@ -55,8 +55,8 @@ for ((ch=CH_START; ch<=CH_END; ch++)); do
     --env "TMPDIR=$TMP_DIR_CONT" \
     --env "TMP=$TMP_DIR_CONT" \
     --env "TEMP=$TMP_DIR_CONT" \
-    --pwd /work
-    "$SIF_IMAGE"
+    --pwd /work \
+    "$SIF_IMAGE" \
     python3 /work/repo/scripts/call_ibd_chrom.py \
       --h5 "/work/hdf5/$H5_REL" \
       --ch "$ch" \
