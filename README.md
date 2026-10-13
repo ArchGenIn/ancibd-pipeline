@@ -205,3 +205,20 @@ More detail: `docs/tune_grid.md`
 ```
 
 The comparison ignores header and row order.
+
+## Convenience preprocessing and post-processing utilities
+
+Optional, documented helpers live under `scripts/preprocess/` and
+`scripts/postprocess/`. They are deliberately kept outside the top-level
+`ancibd-pipeline` CLI because they prepare inputs or transform outputs rather
+than constitute mandatory ancIBD execution stages.
+
+BCF utilities use the `bcftools` bundled in the configured Apptainer image.
+Available helpers include:
+
+- `scripts/preprocess/downsample_bcfs.sh` — restrict chromosome BCFs to target sites
+- `scripts/preprocess/merge_bcfs.sh` — merge chromosome BCF sets and validate cross-chromosome sample consistency
+- `scripts/preprocess/subset_bcfs.sh` — subset chromosome BCFs to a requested IID list and validate the result
+- `scripts/postprocess/subset_ch_all_pairs.sh` — stream-filter `ch_all.tsv` to the exact IID pairs represented in a filtered `ibd_ind.tsv`
+
+See [`docs/convenience_utilities.md`](docs/convenience_utilities.md) for usage and behaviour.
