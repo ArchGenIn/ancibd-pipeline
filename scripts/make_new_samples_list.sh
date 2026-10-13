@@ -18,6 +18,11 @@ Optional:
 
 Output:
   <OUTDIR>/<RUN_ID>_new_samples.txt
+
+Note:
+  This is an IID-level helper for the legacy incremental workflow. If samples
+  can be filtered out and later reintroduced, prefer prod-incremental with
+  repeated --previous-run paths so missing pairs are tracked exactly.
 USAGE
 }
 

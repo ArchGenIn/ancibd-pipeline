@@ -10,15 +10,22 @@ Modes:
       Cover all unique IID pairs using the existing coarse batches.
 
   incremental
-      Cover only pairs with at least one IID in the target set. The target set
-      is either supplied directly (delta-kind=new) or defined as the complement
-      of an already-analysed IID list (delta-kind=analyzed).
+      Legacy IID-delta mode. Cover only pairs with at least one IID in the
+      target set. The target set is either supplied directly (delta-kind=new)
+      or defined as the complement of an already-analysed IID list
+      (delta-kind=analyzed).
+
+  pair-history
+      Pair-aware incremental mode. Cover exactly those pairs among the current
+      IID set that are not already covered by one or more complete previous
+      prod/prod-incremental runs.
 """
 import argparse
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import Iterable
+from typing import Iterable, Iterator
 
 
 @dataclass(frozen=True)
@@ -30,6 +37,14 @@ class Job:
     plan: str
     left: list[str]
     right: list[str]
+    exact_pairs: list[tuple[str, str]] | None = None
+
+
+@dataclass(frozen=True)
+class HistoryRun:
+    path: Path
+    iids: frozenset[str]
+    target_iids: frozenset[str] | None
 
 
 def read_iids(path: Path) -> list[str]:
@@ -62,6 +77,87 @@ def read_iids(path: Path) -> list[str]:
     return items
 
 
+def read_pairjobs(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise SystemExit(f"Missing pairjobs file in previous run: {path}")
+
+    lines = [line.rstrip("\n") for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if not lines:
+        raise SystemExit(f"Pairjobs file is empty: {path}")
+
+    header = lines[0].split("\t")
+    required = {"job_id", "plan"}
+    missing_cols = sorted(required - set(header))
+    if missing_cols:
+        raise SystemExit(f"Pairjobs file lacks required columns {missing_cols}: {path}")
+
+    rows: list[dict[str, str]] = []
+    for lineno, line in enumerate(lines[1:], start=2):
+        fields = line.split("\t")
+        if len(fields) != len(header):
+            raise SystemExit(
+                f"Malformed pairjobs row at {path}:{lineno}: expected {len(header)} fields, got {len(fields)}"
+            )
+        rows.append(dict(zip(header, fields)))
+
+    if not rows:
+        raise SystemExit(f"Pairjobs file has no jobs: {path}")
+    return rows
+
+
+def load_history_run(path: Path) -> HistoryRun:
+    meta = path / "meta"
+    out = path / "out"
+    iids_path = meta / "iids.txt"
+    jobs_path = meta / "pairjobs.tsv"
+
+    if not path.is_dir():
+        raise SystemExit(f"Previous run directory does not exist: {path}")
+    if not iids_path.is_file():
+        raise SystemExit(f"Previous run lacks meta/iids.txt: {path}")
+
+    rows = read_pairjobs(jobs_path)
+
+    missing_done = [row["job_id"] for row in rows if not (out / row["job_id"] / "DONE").is_file()]
+    if missing_done:
+        preview = ", ".join(missing_done[:10])
+        suffix = " ..." if len(missing_done) > 10 else ""
+        raise SystemExit(
+            f"Previous run is not complete at the pairjob level: {path}\n"
+            f"Missing DONE for {len(missing_done)} job(s): {preview}{suffix}"
+        )
+
+    plans = {row["plan"] for row in rows}
+    iids = frozenset(read_iids(iids_path))
+
+    if plans == {"all"}:
+        # A completed full prod run directly covers the full clique on its IID set.
+        target_iids = None
+    elif plans == {"pairhistory"}:
+        # A completed pair-history run filled every pair that was missing relative
+        # to the verified history supplied when that run was planned. Therefore
+        # the cumulative history through this run covers the full clique on this
+        # run's IID set. Treating it as such is safe for future planning.
+        target_iids = None
+    else:
+        target_path = meta / "target_iids.txt"
+        if not target_path.is_file():
+            raise SystemExit(
+                f"Previous run appears to use legacy IID-delta planning but lacks "
+                f"meta/target_iids.txt: {path}"
+            )
+        target_list = read_iids(target_path)
+        unknown = [iid for iid in target_list if iid not in iids]
+        if unknown:
+            preview = ", ".join(unknown[:10])
+            raise SystemExit(
+                f"Previous run target_iids.txt contains IID(s) absent from meta/iids.txt: {preview}"
+            )
+        target_iids = frozenset(target_list)
+
+    return HistoryRun(path=path, iids=iids, target_iids=target_iids)
+
+
 def batch_slices(iids: list[str], batch_size: int) -> list[list[str]]:
     return [iids[i : i + batch_size] for i in range(0, len(iids), batch_size)]
 
@@ -74,6 +170,18 @@ def stable_union(left: list[str], right: list[str]) -> list[str]:
             continue
         out.append(iid)
         seen.add(iid)
+    return out
+
+
+def stable_pair_endpoints(pairs: Iterable[tuple[str, str]]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for iid1, iid2 in pairs:
+        for iid in (iid1, iid2):
+            if iid in seen:
+                continue
+            seen.add(iid)
+            out.append(iid)
     return out
 
 
@@ -110,10 +218,17 @@ def pair_count(left: list[str], right: list[str], mode: str) -> int:
 
 
 def write_job_files(job: Job, plans_dir: Path) -> tuple[int, int]:
-    preload = job.left if job.mode == "within" else stable_union(job.left, job.right)
+    if job.exact_pairs is None:
+        preload = job.left if job.mode == "within" else stable_union(job.left, job.right)
+        pair_iter: Iterable[str] = pair_lines(job.left, job.right, job.mode)
+        expected_pairs = pair_count(job.left, job.right, job.mode)
+    else:
+        preload = stable_pair_endpoints(job.exact_pairs)
+        pair_iter = (f"{iid1}\t{iid2}" for iid1, iid2 in job.exact_pairs)
+        expected_pairs = len(job.exact_pairs)
+
     preload_count = write_lines(plans_dir / f"{job.job_id}.iids", preload)
-    pairs_written = write_lines(plans_dir / f"{job.job_id}.pairs", pair_lines(job.left, job.right, job.mode))
-    expected_pairs = pair_count(job.left, job.right, job.mode)
+    pairs_written = write_lines(plans_dir / f"{job.job_id}.pairs", pair_iter)
     if pairs_written != expected_pairs:
         raise SystemExit(
             f"Internal error for {job.job_id}: wrote {pairs_written} pairs, expected {expected_pairs}"
@@ -121,42 +236,35 @@ def write_job_files(job: Job, plans_dir: Path) -> tuple[int, int]:
     return preload_count, pairs_written
 
 
-def build_all_jobs(batches: list[list[str]]) -> list[Job]:
-    jobs: list[Job] = []
+def build_all_jobs(batches: list[list[str]]) -> Iterator[Job]:
     for b1, left in enumerate(batches):
         for b2 in range(b1, len(batches)):
             right = batches[b2]
             if b1 == b2:
                 if len(left) < 2:
                     continue
-                jobs.append(
-                    Job(
-                        job_id=f"b{b1:03d}_b{b2:03d}",
-                        b1=b1,
-                        b2=b2,
-                        mode="within",
-                        plan="all",
-                        left=left,
-                        right=left,
-                    )
+                yield Job(
+                    job_id=f"b{b1:03d}_b{b2:03d}",
+                    b1=b1,
+                    b2=b2,
+                    mode="within",
+                    plan="all",
+                    left=left,
+                    right=left,
                 )
             else:
-                jobs.append(
-                    Job(
-                        job_id=f"b{b1:03d}_b{b2:03d}",
-                        b1=b1,
-                        b2=b2,
-                        mode="cross",
-                        plan="all",
-                        left=left,
-                        right=right,
-                    )
+                yield Job(
+                    job_id=f"b{b1:03d}_b{b2:03d}",
+                    b1=b1,
+                    b2=b2,
+                    mode="cross",
+                    plan="all",
+                    left=left,
+                    right=right,
                 )
-    return jobs
 
 
-def build_incremental_jobs(batches: list[list[str]], target: set[str]) -> list[Job]:
-    jobs: list[Job] = []
+def build_incremental_jobs(batches: list[list[str]], target: set[str]) -> Iterator[Job]:
     for b1, left in enumerate(batches):
         left_new = [iid for iid in left if iid in target]
         left_old = [iid for iid in left if iid not in target]
@@ -167,68 +275,158 @@ def build_incremental_jobs(batches: list[list[str]], target: set[str]) -> list[J
 
             if b1 == b2:
                 if len(left_new) >= 2:
-                    jobs.append(
-                        Job(
-                            job_id=f"b{b1:03d}_b{b2:03d}_newnew",
-                            b1=b1,
-                            b2=b2,
-                            mode="within",
-                            plan="newnew",
-                            left=left_new,
-                            right=left_new,
-                        )
+                    yield Job(
+                        job_id=f"b{b1:03d}_b{b2:03d}_newnew",
+                        b1=b1,
+                        b2=b2,
+                        mode="within",
+                        plan="newnew",
+                        left=left_new,
+                        right=left_new,
                     )
                 if left_new and left_old:
-                    jobs.append(
-                        Job(
-                            job_id=f"b{b1:03d}_b{b2:03d}_newold",
-                            b1=b1,
-                            b2=b2,
-                            mode="cross",
-                            plan="newold",
-                            left=left_new,
-                            right=left_old,
-                        )
+                    yield Job(
+                        job_id=f"b{b1:03d}_b{b2:03d}_newold",
+                        b1=b1,
+                        b2=b2,
+                        mode="cross",
+                        plan="newold",
+                        left=left_new,
+                        right=left_old,
                     )
                 continue
 
             if left_new and right:
-                jobs.append(
-                    Job(
-                        job_id=f"b{b1:03d}_b{b2:03d}_newleft",
-                        b1=b1,
-                        b2=b2,
-                        mode="cross",
-                        plan="newleft",
-                        left=left_new,
-                        right=right,
-                    )
+                yield Job(
+                    job_id=f"b{b1:03d}_b{b2:03d}_newleft",
+                    b1=b1,
+                    b2=b2,
+                    mode="cross",
+                    plan="newleft",
+                    left=left_new,
+                    right=right,
                 )
             if left_old and right_new:
-                jobs.append(
-                    Job(
-                        job_id=f"b{b1:03d}_b{b2:03d}_newright",
-                        b1=b1,
-                        b2=b2,
-                        mode="cross",
-                        plan="newright",
-                        left=left_old,
-                        right=right_new,
-                    )
+                yield Job(
+                    job_id=f"b{b1:03d}_b{b2:03d}_newright",
+                    b1=b1,
+                    b2=b2,
+                    mode="cross",
+                    plan="newright",
+                    left=left_old,
+                    right=right_new,
                 )
-    return jobs
+
+
+def iid_history_signature(iid: str, history: list[HistoryRun]) -> tuple[int, int]:
+    present_mask = 0
+    target_mask = 0
+    for idx, run in enumerate(history):
+        bit = 1 << idx
+        if iid not in run.iids:
+            continue
+        present_mask |= bit
+        if run.target_iids is None or iid in run.target_iids:
+            target_mask |= bit
+    return present_mask, target_mask
+
+
+def pair_is_covered(sig1: tuple[int, int], sig2: tuple[int, int]) -> bool:
+    present1, target1 = sig1
+    present2, target2 = sig2
+    shared_runs = present1 & present2
+    return bool(shared_runs & (target1 | target2))
+
+
+def group_batch_by_signature(
+    batch: list[str], history: list[HistoryRun]
+) -> list[tuple[tuple[int, int], list[str]]]:
+    groups: OrderedDict[tuple[int, int], list[str]] = OrderedDict()
+    for iid in batch:
+        sig = iid_history_signature(iid, history)
+        groups.setdefault(sig, []).append(iid)
+    return list(groups.items())
+
+
+def missing_pairs_between_batches(
+    left_groups: list[tuple[tuple[int, int], list[str]]],
+    right_groups: list[tuple[tuple[int, int], list[str]]],
+    same_batch: bool,
+) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+
+    if not same_batch:
+        for sig1, ids1 in left_groups:
+            for sig2, ids2 in right_groups:
+                if pair_is_covered(sig1, sig2):
+                    continue
+                pairs.extend((iid1, iid2) for iid1 in ids1 for iid2 in ids2)
+        return pairs
+
+    for g1, (sig1, ids1) in enumerate(left_groups):
+        for g2 in range(g1, len(left_groups)):
+            sig2, ids2 = left_groups[g2]
+            if pair_is_covered(sig1, sig2):
+                continue
+            if g1 == g2:
+                pairs.extend(
+                    (iid1, iid2)
+                    for i, iid1 in enumerate(ids1)
+                    for iid2 in ids1[i + 1 :]
+                )
+            else:
+                pairs.extend((iid1, iid2) for iid1 in ids1 for iid2 in ids2)
+    return pairs
+
+
+def build_pair_history_jobs(
+    batches: list[list[str]], history: list[HistoryRun]
+) -> Iterator[Job]:
+    grouped_batches = [group_batch_by_signature(batch, history) for batch in batches]
+
+    for b1, left in enumerate(batches):
+        for b2 in range(b1, len(batches)):
+            right = batches[b2]
+            pairs = missing_pairs_between_batches(
+                grouped_batches[b1], grouped_batches[b2], same_batch=(b1 == b2)
+            )
+            if not pairs:
+                continue
+
+            left_seen = {iid1 for iid1, _ in pairs}
+            right_seen = {iid2 for _, iid2 in pairs}
+            left_used = [iid for iid in left if iid in left_seen or (b1 == b2 and iid in right_seen)]
+            right_used = [iid for iid in right if iid in right_seen or (b1 == b2 and iid in left_seen)]
+
+            yield Job(
+                job_id=f"b{b1:03d}_b{b2:03d}_missing",
+                b1=b1,
+                b2=b2,
+                mode="exact",
+                plan="pairhistory",
+                left=left_used,
+                right=right_used,
+                exact_pairs=pairs,
+            )
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--iids", required=True, type=Path, help="Global IID list (one IID per line)")
     ap.add_argument("--batch-size", required=True, type=int, help="Batch size")
-    ap.add_argument("--mode", required=True, choices=["all", "incremental"])
+    ap.add_argument("--mode", required=True, choices=["all", "incremental", "pair-history"])
     ap.add_argument("--plans-dir", required=True, type=Path, help="Directory for per-job .iids/.pairs files")
     ap.add_argument("--out-jobs", required=True, type=Path, help="Output TSV describing all jobs")
-    ap.add_argument("--delta-iids", type=Path, help="One-column IID list for incremental mode")
+    ap.add_argument("--delta-iids", type=Path, help="One-column IID list for legacy incremental mode")
     ap.add_argument("--delta-kind", choices=["new", "analyzed"], help="Interpretation of --delta-iids")
-    ap.add_argument("--out-target-iids", type=Path, help="Write the final incremental target IID set here")
+    ap.add_argument("--out-target-iids", type=Path, help="Write the final legacy incremental target IID set here")
+    ap.add_argument(
+        "--previous-run",
+        action="append",
+        type=Path,
+        default=[],
+        help="Complete previous run directory for pair-aware incremental mode; repeat as needed",
+    )
     args = ap.parse_args()
 
     if args.batch_size <= 0:
@@ -238,8 +436,13 @@ def main() -> int:
     batches = batch_slices(iids, args.batch_size)
 
     if args.mode == "all":
-        jobs = build_all_jobs(batches)
-    else:
+        if args.delta_iids is not None or args.delta_kind is not None or args.previous_run:
+            raise SystemExit("all mode does not accept incremental-history arguments")
+        jobs: Iterable[Job] = build_all_jobs(batches)
+        history: list[HistoryRun] = []
+    elif args.mode == "incremental":
+        if args.previous_run:
+            raise SystemExit("legacy incremental mode does not accept --previous-run")
         if args.delta_iids is None or args.delta_kind is None:
             raise SystemExit("incremental mode requires --delta-iids and --delta-kind")
         listed = read_iids(args.delta_iids)
@@ -253,17 +456,24 @@ def main() -> int:
         if not target:
             raise SystemExit("Incremental target IID set is empty")
         jobs = build_incremental_jobs(batches, target)
-        if not jobs:
-            raise SystemExit("Incremental target IID set produced no jobs")
+        history = []
         if args.out_target_iids is not None:
             target_ordered = [iid for iid in iids if iid in target]
             write_lines(args.out_target_iids, target_ordered)
+    else:
+        if args.delta_iids is not None or args.delta_kind is not None:
+            raise SystemExit("pair-history mode is mutually exclusive with --delta-iids/--delta-kind")
+        if not args.previous_run:
+            raise SystemExit("pair-history mode requires at least one --previous-run")
+        history = [load_history_run(path) for path in args.previous_run]
+        jobs = build_pair_history_jobs(batches, history)
 
     args.plans_dir.mkdir(parents=True, exist_ok=True)
 
     rows: list[str] = ["job_id\tb1\tb2\tmode\tplan\tn_left\tn_right\tn_preload\tn_pairs"]
     total_pairs = 0
     total_preload = 0
+    n_jobs = 0
     for job in jobs:
         n_preload, n_pairs = write_job_files(job, args.plans_dir)
         rows.append(
@@ -283,22 +493,29 @@ def main() -> int:
         )
         total_pairs += n_pairs
         total_preload += n_preload
+        n_jobs += 1
+
+    if n_jobs == 0:
+        if args.mode == "pair-history":
+            raise SystemExit(
+                "No missing pairs remain among the current IID set after applying the supplied previous-run history"
+            )
+        raise SystemExit("Incremental target IID set produced no jobs")
 
     write_lines(args.out_jobs, rows)
 
-    print(
-        " ".join(
-            [
-                f"mode={args.mode}",
-                f"n_iids={len(iids)}",
-                f"batch_size={args.batch_size}",
-                f"n_batches={len(batches)}",
-                f"n_jobs={len(jobs)}",
-                f"total_pairs={total_pairs}",
-                f"total_preload={total_preload}",
-            ]
-        )
-    )
+    summary = [
+        f"mode={args.mode}",
+        f"n_iids={len(iids)}",
+        f"batch_size={args.batch_size}",
+        f"n_batches={len(batches)}",
+        f"n_jobs={n_jobs}",
+        f"total_pairs={total_pairs}",
+        f"total_preload={total_preload}",
+    ]
+    if args.mode == "pair-history":
+        summary.append(f"n_previous_runs={len(history)}")
+    print(" ".join(summary))
     return 0
 
 

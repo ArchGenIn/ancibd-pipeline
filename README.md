@@ -117,23 +117,34 @@ For the default all-vs-all workflow, job IDs are the coarse batch rectangles:
 
 ## Run prod-incremental
 
-`prod-incremental` analyses only pairs with at least one IID from a target set.
+`prod-incremental` has two planning modes.
 
-The target set comes from a one-column IID file and `--delta-kind`:
+### Pair-aware history mode (recommended)
+
+Supply one or more complete previous run directories with repeated `--previous-run` arguments. The planner reconstructs which pairs were already covered by those runs and emits exactly the pairs that are still missing among the current HDF5 IID set. Supply every earlier round whose coverage you want reused; omitting an older round cannot make the new result incomplete, but it can cause pairs known only from that omitted round to be recomputed.
+
+This remains correct when filtering is non-monotonic across rounds: an IID may disappear from one round and later be deliberately reintroduced without causing already-covered pairs to be rerun or previously-unseen pairs to be missed.
+
+```bash
+RUN_ID="$(./ancibd-pipeline new-run prod-incremental)"; export RUN_ID
+./ancibd-pipeline prod-incremental 1-22 \
+  --previous-run runs/<ROUND1_RUN_ID> \
+  --previous-run runs/<ROUND2_RUN_ID> \
+  --previous-run runs/<ROUND3_RUN_ID>
+```
+
+Each supplied previous run must have complete per-job `DONE` coverage according to its `meta/pairjobs.tsv`. Full `prod` runs are interpreted as covering every pair among their `meta/iids.txt`; legacy incremental runs are interpreted using their `meta/iids.txt` and `meta/target_iids.txt`. This lets pair-aware planning reuse already-finished runs created by older pipeline versions without enumerating a global historical pair set.
+
+The explicit previous-run paths are recorded in `runs/<RUN_ID>/meta/previous_runs.txt`, and `meta/incremental.env` records `INCREMENTAL_MODE=pair-history`.
+
+### IID-delta mode (legacy/backward-compatible)
+
+The original interface is unchanged. It analyses only pairs with at least one IID from a target set. The target set comes from a one-column IID file and `--delta-kind`:
 
 - `--delta-kind new`: listed IIDs are the target set
 - `--delta-kind analyzed`: listed IIDs have already been analysed, so the target set is the complement within the current HDF5 sample list
 
-This mode includes:
-
-- target × target
-- target × non-target
-
-and excludes:
-
-- non-target × non-target
-
-Examples:
+This mode includes target × target and target × non-target pairs, and excludes non-target × non-target pairs.
 
 ```bash
 RUN_ID="$(./ancibd-pipeline new-run prod-incremental)"; export RUN_ID
@@ -148,18 +159,11 @@ RUN_ID="$(./ancibd-pipeline new-run prod-incremental)"; export RUN_ID
   --pcol RAF
 ```
 
-The planner still uses `BATCH_SIZE` to define coarse sample batches, but it emits only the exact pairjobs required by the target set. Job IDs are suffixed by the job shape:
+The planner still uses `BATCH_SIZE` to define coarse sample batches, but it emits only the exact pairjobs required by the selected mode. Legacy IID-delta job IDs use the existing `_newleft`, `_newright`, `_newnew`, and `_newold` suffixes. Pair-aware history jobs use `_missing` and can contain sparse exact pair lists within a coarse batch rectangle.
 
-- `_newleft`
-- `_newright`
-- `_newnew`
-- `_newold`
+The resolved IID-delta target set is written to `runs/<RUN_ID>/meta/target_iids.txt`. Input IID lists are deduplicated automatically while preserving first-seen order. Duplicate entries are reported on stderr and then ignored.
 
-The resolved target IID set is written to `runs/<RUN_ID>/meta/target_iids.txt`.
-
-Input IID lists are deduplicated automatically while preserving first-seen order. Duplicate entries are reported on stderr and then ignored.
-
-To prepare the target IID file for an incremental run from a previous full analysis, use:
+The convenience helper remains available for the legacy IID-delta workflow:
 
 ```bash
 RUN_ID=20260318T120000Z_prod-incremental
@@ -167,7 +171,7 @@ RUN_ID=20260318T120000Z_prod-incremental
   --analyzed-iids runs/<OLD_RUN_ID>/meta/iids.txt
 ```
 
-This writes `./${RUN_ID}_new_samples.txt` by subtracting the listed analysed IIDs from the current HDF5 sample list. If the analysed IID file contains names that are not present in the HDF5s, the helper prints a warning and still writes the set difference.
+It writes `./${RUN_ID}_new_samples.txt` by subtracting the listed analysed IIDs from the current HDF5 sample list. This IID-level helper is safe when the analysed sample set evolves monotonically, but it cannot by itself detect missing old-old pairs created by non-monotonic filtering. Use pair-aware history mode for that case.
 
 ## Monitor prod runs
 

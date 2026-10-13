@@ -18,7 +18,7 @@ Chromosome range resolution:
 Commands:
   baseline [CH_RANGE] [--pcol AF_ALL|RAF|AF_REF]
   prod [CH_RANGE] [--pcol AF_ALL|RAF|AF_REF]
-  prod-incremental [CH_RANGE] --delta-iids PATH --delta-kind new|analyzed [--pcol AF_ALL|RAF|AF_REF]
+  prod-incremental [CH_RANGE] (--delta-iids PATH --delta-kind new|analyzed | --previous-run PATH [--previous-run PATH ...]) [--pcol AF_ALL|RAF|AF_REF]
   build-hdf5 [CH_RANGE] [--force] [--with-ref-af] [--ref-af-path PATH]
   build-hdf5-condor [CH_RANGE] [--force] [--with-ref-af] [--ref-af-path PATH]
   validate-hdf5 [CH_RANGE]
@@ -327,6 +327,7 @@ case "$cmd" in
     CH_RANGE_ENV="${CH_RANGE:-}"
     DELTA_IIDS=""
     DELTA_KIND=""
+    PREVIOUS_RUNS=()
 
     if [[ "${1:-}" =~ ^[0-9]+-[0-9]+$ ]]; then
       CH_RANGE_CLI="$1"; shift
@@ -344,13 +345,21 @@ case "$cmd" in
         --delta-kind)
           [[ -n "${2:-}" ]] || die "--delta-kind requires a value"
           DELTA_KIND="$2"; shift 2 ;;
+        --previous-run)
+          [[ -n "${2:-}" ]] || die "--previous-run requires a value"
+          PREVIOUS_RUNS+=("$2"); shift 2 ;;
         *)
           die "Unknown arg for prod-incremental: $1" ;;
       esac
     done
 
-    [[ -n "$DELTA_IIDS" ]] || die "prod-incremental requires --delta-iids PATH"
-    [[ -n "$DELTA_KIND" ]] || die "prod-incremental requires --delta-kind new|analyzed"
+    if [[ ${#PREVIOUS_RUNS[@]} -gt 0 ]]; then
+      [[ -z "$DELTA_IIDS" && -z "$DELTA_KIND" ]] || \
+        die "--previous-run is mutually exclusive with --delta-iids/--delta-kind"
+    else
+      [[ -n "$DELTA_IIDS" ]] || die "prod-incremental requires either --previous-run PATH or --delta-iids PATH"
+      [[ -n "$DELTA_KIND" ]] || die "--delta-iids requires --delta-kind new|analyzed"
+    fi
 
     load_config
     require_batchpair_requests
@@ -362,7 +371,20 @@ case "$cmd" in
     prepare_run_dirs "$RUN_DIR"
     write_run_options "$RUN_DIR" "$PCOL"
     "$ROOT/scripts/make_iid_list.sh" >/dev/null
-    "$ROOT/scripts/make_pairjobs.sh"       --mode incremental       --delta-iids "$DELTA_IIDS"       --delta-kind "$DELTA_KIND" >/dev/null
+
+    if [[ ${#PREVIOUS_RUNS[@]} -gt 0 ]]; then
+      PAIRJOB_ARGS=(--mode pair-history)
+      for prev in "${PREVIOUS_RUNS[@]}"; do
+        PAIRJOB_ARGS+=(--previous-run "$prev")
+      done
+      "$ROOT/scripts/make_pairjobs.sh" "${PAIRJOB_ARGS[@]}" >/dev/null
+    else
+      "$ROOT/scripts/make_pairjobs.sh" \
+        --mode incremental \
+        --delta-iids "$DELTA_IIDS" \
+        --delta-kind "$DELTA_KIND" >/dev/null
+    fi
+
     submit_prod_dag "$RUN_DIR" "$CH_RANGE_USE"
     ;;
 
