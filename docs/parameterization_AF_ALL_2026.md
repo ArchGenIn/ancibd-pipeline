@@ -6,7 +6,8 @@ Relevant code paths:
 
 - `ancibd-pipeline/scripts/call_ibd_chrom.py`
 - `ancibd-pipeline/scripts/run_batchpair.sh`
-- `ancibd-pipeline/scripts/run_summary.sh`
+- `ancibd-pipeline/scripts/run_summary.sh` (baseline workflow)
+- `ancibd-pipeline/scripts/merge_batch_outputs.sh` (production workflow)
 - `ancIBD/package/ancIBD/run.py`
 - `ancIBD/package/ancIBD/ancIBD_summary.py`
 - `ancIBD/package/ancIBD/IO/ind_ibd.py`
@@ -84,12 +85,9 @@ mask=""
 
 ## 2. Summary generation
 
-After chromosome-wise calling, `ancibd-pipeline` runs `ancIBD-summary` in:
+After chromosome-wise calling, `ancibd-pipeline` runs `ancIBD-summary` in `scripts/run_batchpair.sh` for each production pairjob. In the baseline workflow, `scripts/run_summary.sh` runs the corresponding whole-run summary directly. Production runs do **not** rerun `ancIBD-summary` after all pairjobs finish: `scripts/merge_batch_outputs.sh` concatenates the per-job `ibd_ind.tsv` files and, when enabled, the per-job `ch_all.tsv` files.
 
-- `scripts/run_batchpair.sh` for per-job summaries
-- `scripts/run_summary.sh` for the final merged summary
-
-The pipeline passes:
+When `ancIBD-summary` is invoked, the pipeline passes:
 
 ```bash
 ancIBD-summary \

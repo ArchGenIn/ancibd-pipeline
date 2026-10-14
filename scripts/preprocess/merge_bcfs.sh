@@ -127,6 +127,12 @@ while IFS= read -r chr; do
   out="$(abs_path "$out")"
   out_dir="$(dirname "$out")"
   [[ -w "$out_dir" ]] || die "output directory is not writable: $out_dir"
+  if [[ "$first" == "$out" ]] || [[ -e "$out" && "$first" -ef "$out" ]]; then
+    die "first input and output BCF resolve to the same file for chr${chr}: $first"
+  fi
+  if [[ "$second" == "$out" ]] || [[ -e "$out" && "$second" -ef "$out" ]]; then
+    die "second input and output BCF resolve to the same file for chr${chr}: $second"
+  fi
   if [[ -e "$out" && "$FORCE" -ne 1 ]]; then die "output exists: $out (use --force)"; fi
 
   # Inputs are rw because this convenience utility creates a missing CSI index,
@@ -137,6 +143,12 @@ while IFS= read -r chr; do
   CHR_ARR+=("$chr"); FIRST_ARR+=("$first"); SECOND_ARR+=("$second"); OUT_ARR+=("$out")
 done < <(expand_chroms "$CHROMS")
 [[ "${#CHR_ARR[@]}" -gt 0 ]] || die "no chromosomes selected"
+
+protected=("${FIRST_ARR[@]}" "${SECOND_ARR[@]}")
+produced=("$SAMPLES_OUT" "$SUMMARY")
+for path in "${FIRST_ARR[@]}" "${SECOND_ARR[@]}"; do protected+=("$path.csi" "$path.tbi"); done
+for path in "${OUT_ARR[@]}"; do produced+=("$path" "$path.csi" "$path.tbi"); done
+assert_distinct_io_paths "${protected[@]}" -- "${produced[@]}"
 add_bind_dir "$(dirname "$SAMPLES_OUT")" rw
 
 ensure_index() {
@@ -157,10 +169,14 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-if [[ "$FORCE" -eq 1 ]]; then rm -f "$SUMMARY" "$SAMPLES_OUT"; fi
-printf 'chromosome\tfirst_bcf\tsecond_bcf\toutput_bcf\tn_first_samples\tn_second_samples\tn_output_samples\tn_output_sites\tsample_order_same_as_chr1\n' > "$SUMMARY"
+TMP_SUMMARY="$(mktemp "$OUT_DIR/.merge_summary.tsv.tmp.XXXXXXXX")"
+printf 'chromosome\tfirst_bcf\tsecond_bcf\toutput_bcf\tn_first_samples\tn_second_samples\tn_output_samples\tn_output_sites\tsample_order_same_as_chr1\n' > "$TMP_SUMMARY"
 TMP_REFERENCE="$(mktemp)"
-cleanup_tmp() { rm -f "$TMP_REFERENCE"; }
+TMP_SAMPLES_OUT=""
+cleanup_tmp() {
+  rm -f -- "$TMP_REFERENCE" "$TMP_SUMMARY"
+  if [[ -n "$TMP_SAMPLES_OUT" ]]; then rm -f -- "$TMP_SAMPLES_OUT"; fi
+}
 trap cleanup_tmp EXIT
 
 CURRENT_OUT=""
@@ -172,21 +188,20 @@ trap cleanup_partial INT TERM ERR
 for i in "${!CHR_ARR[@]}"; do
   chr="${CHR_ARR[$i]}"; first="${FIRST_ARR[$i]}"; second="${SECOND_ARR[$i]}"; out="${OUT_ARR[$i]}"
   ensure_index "$first"; ensure_index "$second"
-  if [[ -e "$out" && "$FORCE" -eq 1 ]]; then rm -f -- "$out" "$out.csi" "$out.tbi"; fi
   n_first="$(container_bcftools query -l "$first" | wc -l | tr -d ' ')"
   n_second="$(container_bcftools query -l "$second" | wc -l | tr -d ' ')"
 
-  CURRENT_OUT="$out"
+  CURRENT_OUT="$(new_staged_bcf "$out")"
   merge_args=(merge --force-samples -Ob)
   if [[ "$THREADS" -gt 0 ]]; then merge_args+=(--threads "$THREADS"); fi
-  merge_args+=(-o "$out" "$first" "$second")
+  merge_args+=(-o "$CURRENT_OUT" "$first" "$second")
   container_bcftools "${merge_args[@]}"
-  container_bcftools index -f "$out"
+  container_bcftools index -f "$CURRENT_OUT"
 
   current_samples="$(mktemp)"
-  container_bcftools query -l "$out" > "$current_samples"
+  container_bcftools query -l "$CURRENT_OUT" > "$current_samples"
   n_output="$(wc -l < "$current_samples" | tr -d ' ')"
-  n_sites="$(container_bcftools index -n "$out")"
+  n_sites="$(container_bcftools index -n "$CURRENT_OUT")"
   same="yes"
   if [[ -s "$TMP_REFERENCE" ]]; then
     if ! cmp -s "$TMP_REFERENCE" "$current_samples"; then same="no"; fi
@@ -196,12 +211,17 @@ for i in "${!CHR_ARR[@]}"; do
   rm -f "$current_samples"
 
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$chr" "$first" "$second" "$out" "$n_first" "$n_second" "$n_output" "$n_sites" "$same" >> "$SUMMARY"
-  [[ "$same" == "yes" ]] || die "merged sample list differs on chr${chr}; see $SUMMARY"
+    "$chr" "$first" "$second" "$out" "$n_first" "$n_second" "$n_output" "$n_sites" "$same" >> "$TMP_SUMMARY"
+  [[ "$same" == "yes" ]] || die "merged sample list differs on chr${chr}; see staged summary ($TMP_SUMMARY)"
+  publish_staged_bcf "$CURRENT_OUT" "$out"
   CURRENT_OUT=""
 done
 
-cp "$TMP_REFERENCE" "$SAMPLES_OUT"
+# Publish the sidecars only when *all* chromosomes have passed.
+TMP_SAMPLES_OUT="$(mktemp "$(dirname "$SAMPLES_OUT")/.$(basename "$SAMPLES_OUT").tmp.XXXXXXXX")"
+cp "$TMP_REFERENCE" "$TMP_SAMPLES_OUT"
+mv -f -- "$TMP_SAMPLES_OUT" "$SAMPLES_OUT"
+mv -f -- "$TMP_SUMMARY" "$SUMMARY"
 trap - INT TERM ERR
 echo "Done."
 echo "Summary: $SUMMARY"

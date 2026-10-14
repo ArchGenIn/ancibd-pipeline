@@ -19,7 +19,7 @@ Purpose:
 What it modifies:
   - edits config/local.env temporarily
   - restores the original config on exit
-  - writes a summary TSV under runs/tuning/
+  - writes a summary TSV under RUNS_ROOT/tuning/
 
 Important environment variables:
   CH_RANGE              chromosome range to submit for each grid point
@@ -174,6 +174,16 @@ main() {
   require_cmd condor_status
 
   [[ -f "$CFG" ]] || die "Missing $CFG (copy from config/example.env)"
+  local runs_root
+  # Read RUNS_ROOT without letting config/local.env override the tuning knobs
+  # already resolved from this script's environment (for example CH_RANGE).
+  runs_root="$(
+    cd "$ROOT"
+    # shellcheck disable=SC1090
+    source "$CFG"
+    printf '%s\n' "${RUNS_ROOT:-}"
+  )"
+  [[ -n "$runs_root" ]] || die "RUNS_ROOT not set in $CFG"
 
   local bak
   bak="${CFG}.bak.$(ts_utc)"
@@ -186,7 +196,7 @@ main() {
   echo "Safety ratios: CPU=${CPU_SAFETY_NUM}/${CPU_SAFETY_DEN}  Mem=${MEM_SAFETY_NUM}/${MEM_SAFETY_DEN}  Disk=${DISK_SAFETY_NUM}/${DISK_SAFETY_DEN}"
   echo
 
-  local summary_dir="$ROOT/runs/tuning"
+  local summary_dir="${runs_root%/}/tuning"
   mkdir -p "$summary_dir"
 
   local summary
@@ -214,7 +224,7 @@ main() {
       run_id="$("$ROOT/ancibd-pipeline" new-run "$tag")"
       export RUN_ID="$run_id"
 
-      local submit_log="$ROOT/runs/$run_id/logs/tuning_submit.log"
+      local submit_log="${runs_root%/}/$run_id/logs/tuning_submit.log"
       mkdir -p "$(dirname "$submit_log")"
 
       echo "RUN_ID=$run_id"

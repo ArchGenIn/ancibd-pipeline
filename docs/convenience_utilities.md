@@ -10,6 +10,15 @@ configured by `SIF_IMAGE` in `config/local.env`. They do not use a host
 `bcftools`. The streaming `ch_all` subsetter uses only shell/coreutils/awk and
 optionally host `pv` for a progress display.
 
+For all three BCF utilities, input and output paths (including indices,
+sidecars and summaries) must be distinct. Collisions are rejected even with
+`--force`, including across chromosomes and through symlink/hard-link aliases.
+`--force` builds and indexes each replacement BCF in a temporary file before
+replacing its prior version; failures during BCF creation or validation leave
+that prior BCF and index intact. The chromosome outputs are published one at a
+time, **not** as an atomic all-chromosome transaction. Use `--dry-run` to
+check the resolved paths before starting a large operation.
+
 ## Preprocessing BCFs
 
 ### Downsample sites
@@ -84,4 +93,7 @@ streams `ch_all.tsv`, so only the requested pair set is held in memory.
 ```
 
 The utility also writes the canonical pair list it used and a report of
-requested pairs that were absent from `ch_all.tsv`.
+requested pairs that were absent from `ch_all.tsv`. All input/report/output
+paths must be distinct, even with `--force`. A header-only `ibd_ind.tsv` is
+valid and yields a header-only `ch_all.tsv`; a completely empty file (without
+a header) is rejected.

@@ -81,13 +81,15 @@ is_complete_dir() {
 while IFS=$'\t' read -r job_id b1 b2 mode plan n_left n_right n_preload n_pairs rest; do
   [[ -n "${job_id:-}" ]] || continue
   if [[ "$job_id" == "job_id" ]]; then
-    header="$job_id\t$b1\t$b2\t$mode\t$plan\t$n_left\t$n_right\t$n_preload\t$n_pairs"
+    printf -v header '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+      "$job_id" "$b1" "$b2" "$mode" "$plan" "$n_left" "$n_right" "$n_preload" "$n_pairs"
     continue
   fi
 
   expected=$((expected + 1))
   d="$OUT_BASE/$job_id"
-  row="$job_id\t$b1\t$b2\t$mode\t$plan\t$n_left\t$n_right\t$n_preload\t$n_pairs"
+  printf -v row '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+    "$job_id" "$b1" "$b2" "$mode" "$plan" "$n_left" "$n_right" "$n_preload" "$n_pairs"
 
   if is_complete_dir "$d"; then
     done_ok=$((done_ok + 1))

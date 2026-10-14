@@ -27,7 +27,13 @@ def main() -> None:
                     raise SystemExit(2)
 
             n_var = f["variants/POS"].shape[0]
-            if n_var == 0 or f["calldata/GP"].shape[0] == 0:
+            n_samples = f["samples"].shape[0]
+            gp = f["calldata/GP"]
+            if n_var == 0 or n_samples == 0:
+                raise SystemExit(2)
+            if f["variants/MAP"].shape[0] != n_var:
+                raise SystemExit(2)
+            if gp.ndim != 3 or gp.shape[0] != n_var or gp.shape[1] != n_samples or gp.shape[2] != 3:
                 raise SystemExit(2)
 
             for af_key in AF_KEYS:

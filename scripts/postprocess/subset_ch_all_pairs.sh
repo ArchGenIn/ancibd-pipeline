@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=../lib.sh
+source "$ROOT/scripts/lib.sh"
 
 usage() {
   cat <<'USAGE'
@@ -88,6 +91,10 @@ if [[ -z "$MISSING_PAIRS" ]]; then
   MISSING_PAIRS="${OUT}.missing_pairs.tsv"
 fi
 
+# A report path is still an output: it must never alias a source TSV or
+# another output, even when --force is requested.
+assert_distinct_io_paths "$IBD" "$CH" -- "$OUT" "$PAIR_LIST" "$MISSING_PAIRS"
+
 if [[ "$FORCE" -ne 1 ]]; then
   for f in "$OUT" "$PAIR_LIST" "$MISSING_PAIRS"; do
     if [[ -e "$f" ]]; then
@@ -116,9 +123,9 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-TMP_PAIR="${PAIR_LIST}.tmp.$$"
-TMP_OUT="${OUT}.tmp.$$"
-TMP_MISSING="${MISSING_PAIRS}.tmp.$$"
+TMP_PAIR="$(mktemp "$(dirname "$PAIR_LIST")/.$(basename "$PAIR_LIST").tmp.XXXXXXXX")"
+TMP_OUT="$(mktemp "$(dirname "$OUT")/.$(basename "$OUT").tmp.XXXXXXXX")"
+TMP_MISSING="$(mktemp "$(dirname "$MISSING_PAIRS")/.$(basename "$MISSING_PAIRS").tmp.XXXXXXXX")"
 trap 'rm -f "$TMP_PAIR" "$TMP_OUT" "$TMP_MISSING"' EXIT
 
 # Step 1: Create the canonical exact-pair list from the filtered ibd_ind table.
@@ -136,6 +143,7 @@ awk -F'\t' -v OFS='\t' '
       print "ERROR: iid1/iid2 columns not found in ibd_ind file" > "/dev/stderr"
       exit 2
     }
+    has_header = 1
     next
   }
   {
@@ -144,10 +152,15 @@ awk -F'\t' -v OFS='\t' '
     if (a > b) { t = a; a = b; b = t }
     print a, b
   }
+  END {
+    if (!has_header) {
+      print "ERROR: ibd_ind file is empty (missing header)" > "/dev/stderr"
+      exit 2
+    }
+  }
 ' "$IBD" | LC_ALL=C sort -u > "$TMP_PAIR"
 
-mv "$TMP_PAIR" "$PAIR_LIST"
-N_PAIRS=$(wc -l < "$PAIR_LIST" | tr -d ' ')
+N_PAIRS=$(wc -l < "$TMP_PAIR" | tr -d ' ')
 echo "Canonical exact pairs to keep: $N_PAIRS" >&2
 
 # Step 2: Stream-filter ch_all.
@@ -159,7 +172,36 @@ echo "Streaming ch_all filter..." >&2
 # so without this the later mv would fail.
 : > "$TMP_MISSING"
 
-AWK_FILTER='
+# NR==FNR is unsafe when the first awk input is empty. Handle the valid
+# zero-pair case explicitly and emit a header-only ch_all subset.
+if [[ "$N_PAIRS" -eq 0 ]]; then
+  awk -F'\t' -v OFS='\t' '
+    FNR == 1 {
+      found_header = 1
+      for (i = 1; i <= NF; i++) {
+        if ($i == "iid1") d1 = i
+        if ($i == "iid2") d2 = i
+      }
+      if (!d1 || !d2) {
+        print "ERROR: iid1/iid2 columns not found in ch_all file" > "/dev/stderr"
+        exit 2
+      }
+      print
+      exit
+    }
+    END {
+      if (!found_header) {
+        print "ERROR: ch_all file is empty" > "/dev/stderr"
+        exit 2
+      }
+    }
+  ' "$CH" > "$TMP_OUT"
+  echo "Kept ch_all data rows: 0" >&2
+  echo "Exact pairs requested: 0" >&2
+  echo "Requested pairs absent from kept ch_all rows: 0" >&2
+else
+
+read -r -d '' AWK_FILTER <<'AWK' || true
   NR == FNR {
     keep[$1 SUBSEP $2] = 1
     n_keep++
@@ -205,21 +247,24 @@ AWK_FILTER='
     print "Exact pairs requested: " n_keep > "/dev/stderr"
     print "Requested pairs absent from kept ch_all rows: " missing_n > "/dev/stderr"
   }
-'
+AWK
 
 if [[ "$PROGRESS" -eq 1 ]]; then
   if command -v pv >/dev/null 2>&1; then
-    pv "$CH" | awk -F'\t' -v OFS='\t' -v missing_file="$TMP_MISSING" "$AWK_FILTER" "$PAIR_LIST" - > "$TMP_OUT"
+    pv "$CH" | awk -F'\t' -v OFS='\t' -v missing_file="$TMP_MISSING" "$AWK_FILTER" "$TMP_PAIR" - > "$TMP_OUT"
   else
     echo "WARNING: --progress requested, but pv is not installed; continuing without progress." >&2
-    awk -F'\t' -v OFS='\t' -v missing_file="$TMP_MISSING" "$AWK_FILTER" "$PAIR_LIST" "$CH" > "$TMP_OUT"
+    awk -F'\t' -v OFS='\t' -v missing_file="$TMP_MISSING" "$AWK_FILTER" "$TMP_PAIR" "$CH" > "$TMP_OUT"
   fi
 else
-  awk -F'\t' -v OFS='\t' -v missing_file="$TMP_MISSING" "$AWK_FILTER" "$PAIR_LIST" "$CH" > "$TMP_OUT"
+  awk -F'\t' -v OFS='\t' -v missing_file="$TMP_MISSING" "$AWK_FILTER" "$TMP_PAIR" "$CH" > "$TMP_OUT"
+fi
 fi
 
-mv "$TMP_OUT" "$OUT"
-mv "$TMP_MISSING" "$MISSING_PAIRS"
+# Do not replace any existing report until the filtering succeeds.
+mv -f -- "$TMP_PAIR" "$PAIR_LIST"
+mv -f -- "$TMP_OUT" "$OUT"
+mv -f -- "$TMP_MISSING" "$MISSING_PAIRS"
 trap - EXIT
 
 echo >&2

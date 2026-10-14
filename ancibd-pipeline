@@ -54,10 +54,13 @@ choose_ch_range() {
 }
 
 write_run_options() {
-  local run_dir="$1" pcol="$2"
+  local run_dir="$1" pcol="$2" ch_range="$3"
   mkdir -p "$run_dir/meta"
-  printf 'PCOL=%s
-' "$pcol" > "$run_dir/meta/options.env"
+  {
+    printf 'PCOL=%s\n' "$pcol"
+    printf 'CH_RANGE=%s\n' "$ch_range"
+    [[ -n "${BATCH_SIZE:-}" ]] && printf 'BATCH_SIZE=%s\n' "$BATCH_SIZE"
+  } > "$run_dir/meta/options.env"
 }
 
 dir_has_entries() {
@@ -245,9 +248,17 @@ case "$cmd" in
     ;;
 
   validate-hdf5)
-    CH_RANGE_CLI="${1:-}"
+    CH_RANGE_CLI=""
     CH_RANGE_ENV="${CH_RANGE:-}"
-    shift || true
+    while [[ $# -gt 0 ]]; do
+      if [[ "$1" =~ ^[0-9]+-[0-9]+$ ]]; then
+        [[ -z "$CH_RANGE_CLI" ]] || die "validate-hdf5 accepts only one CH_RANGE"
+        CH_RANGE_CLI="$1"
+        shift
+      else
+        die "Unknown arg for validate-hdf5: $1"
+      fi
+    done
 
     load_config
     CH_RANGE_USE="$(choose_ch_range "$CH_RANGE_CLI" "$CH_RANGE_ENV" "${CH_RANGE:-}")"
@@ -279,7 +290,7 @@ case "$cmd" in
 
     RUN_DIR="$RUNS_ROOT/$RUN_ID"
     prepare_run_dirs "$RUN_DIR"
-    write_run_options "$RUN_DIR" "$PCOL"
+    write_run_options "$RUN_DIR" "$PCOL" "$CH_RANGE_USE"
 
     read -r CH_START CH_END < <(parse_ch_range "$CH_RANGE_USE")
     for ((ch=CH_START; ch<=CH_END; ch++)); do
@@ -316,7 +327,7 @@ case "$cmd" in
     RUN_DIR="$RUNS_ROOT/$RUN_ID"
 
     prepare_run_dirs "$RUN_DIR"
-    write_run_options "$RUN_DIR" "$PCOL"
+    write_run_options "$RUN_DIR" "$PCOL" "$CH_RANGE_USE"
     "$ROOT/scripts/make_iid_list.sh" >/dev/null
     "$ROOT/scripts/make_pairjobs.sh" --mode all >/dev/null
     submit_prod_dag "$RUN_DIR" "$CH_RANGE_USE"
@@ -369,7 +380,7 @@ case "$cmd" in
     RUN_DIR="$RUNS_ROOT/$RUN_ID"
 
     prepare_run_dirs "$RUN_DIR"
-    write_run_options "$RUN_DIR" "$PCOL"
+    write_run_options "$RUN_DIR" "$PCOL" "$CH_RANGE_USE"
     "$ROOT/scripts/make_iid_list.sh" >/dev/null
 
     if [[ ${#PREVIOUS_RUNS[@]} -gt 0 ]]; then

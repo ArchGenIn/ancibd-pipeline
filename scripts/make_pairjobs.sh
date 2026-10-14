@@ -64,6 +64,12 @@ esac
 RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
 
+# Never erase a saved historical plan (or alter a completed run). Existing
+# iids.txt is allowed: prod/prod-incremental generate it immediately beforehand.
+assert_run_unpopulated_for_metadata "$RUN_DIR"
+for metadata in target_iids.txt incremental.env incremental_source_iids.txt previous_runs.txt; do
+  [[ ! -e "$RUN_DIR/meta/$metadata" ]] || die "Existing planning metadata: $RUN_DIR/meta/$metadata"
+done
 if [[ ! -s "$RUN_DIR/meta/iids.txt" ]]; then
   "$ROOT/scripts/make_iid_list.sh" >/dev/null
 fi
@@ -71,12 +77,6 @@ fi
 PLANS_DIR="$RUN_DIR/work/plans"
 OUT="$RUN_DIR/meta/pairjobs.tsv"
 mkdir -p "$RUN_DIR/meta" "$PLANS_DIR"
-find "$PLANS_DIR" -maxdepth 1 \( -name '*.iids' -o -name '*.pairs' \) -delete
-rm -f "$OUT" \
-  "$RUN_DIR/meta/target_iids.txt" \
-  "$RUN_DIR/meta/incremental.env" \
-  "$RUN_DIR/meta/incremental_source_iids.txt" \
-  "$RUN_DIR/meta/previous_runs.txt"
 
 APPTAINER_BIND_ARGS=(
   --bind "$ROOT:/work/repo:ro"

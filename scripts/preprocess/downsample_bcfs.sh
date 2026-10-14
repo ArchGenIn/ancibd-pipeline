@@ -134,6 +134,9 @@ while IFS= read -r chr; do
   out="$(abs_path "$out")"
   out_dir="$(dirname "$out")"
   [[ -w "$out_dir" ]] || die "output directory is not writable: $out_dir"
+  if [[ "$in" == "$out" ]] || [[ -e "$out" && "$in" -ef "$out" ]]; then
+    die "input and output BCF resolve to the same file for chr${chr}: $in"
+  fi
   if [[ -e "$out" && "$FORCE" -ne 1 ]]; then
     die "output exists for chr${chr}: $out (use --force or choose a fresh output template)"
   fi
@@ -149,6 +152,14 @@ while IFS= read -r chr; do
 done < <(expand_chroms "$CHROMS")
 
 [[ "${#CHR_ARR[@]}" -gt 0 ]] || die "no chromosomes selected"
+
+# Check the full invocation, not just same-chromosome input/output pairs.
+# Targets and existing BCF indices are protected inputs as well.
+protected=("${IN_ARR[@]}" "${TARGET_ARR[@]}")
+produced=()
+for path in "${IN_ARR[@]}"; do protected+=("$path.csi" "$path.tbi"); done
+for path in "${OUT_ARR[@]}"; do produced+=("$path" "$path.csi" "$path.tbi"); done
+assert_distinct_io_paths "${protected[@]}" -- "${produced[@]}"
 
 printf 'chrom\tinput_bcf\ttargets\toutput_bcf\n'
 for i in "${!CHR_ARR[@]}"; do
@@ -178,16 +189,14 @@ trap cleanup_partial INT TERM ERR
 for i in "${!CHR_ARR[@]}"; do
   chr="${CHR_ARR[$i]}"; in="${IN_ARR[$i]}"; out="${OUT_ARR[$i]}"; target="${TARGET_ARR[$i]}"
   echo "=== chr${chr} ==="
-  if [[ -e "$out" && "$FORCE" -eq 1 ]]; then
-    rm -f -- "$out" "$out.csi" "$out.tbi"
-  fi
-  CURRENT_OUT="$out"
-  container_bcftools view -T "$target" -Ob --threads "$THREADS" -o "$out" "$in"
-  container_bcftools index -f "$out"
-  n_sites="$(container_bcftools index -n "$out")"
-  n_samples="$(container_bcftools query -l "$out" | wc -l | tr -d ' ')"
-  echo "OK: sites=$n_sites samples=$n_samples"
+  CURRENT_OUT="$(new_staged_bcf "$out")"
+  container_bcftools view -T "$target" -Ob --threads "$THREADS" -o "$CURRENT_OUT" "$in"
+  container_bcftools index -f "$CURRENT_OUT"
+  n_sites="$(container_bcftools index -n "$CURRENT_OUT")"
+  n_samples="$(container_bcftools query -l "$CURRENT_OUT" | wc -l | tr -d ' ')"
+  publish_staged_bcf "$CURRENT_OUT" "$out"
   CURRENT_OUT=""
+  echo "OK: sites=$n_sites samples=$n_samples"
 done
 
 trap - INT TERM ERR

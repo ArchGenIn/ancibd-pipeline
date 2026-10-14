@@ -126,3 +126,76 @@ find_h5_for_iids() {
   [[ -n "$any_h5" ]] || die "No HDF5 files found under HDF5_ROOT ($(hdf5_root_norm))."
   printf '%s\n' "$any_h5"
 }
+
+# Filesystem safety for tools with several inputs and outputs. realpath -m
+# resolves existing symlinks and normalises even not-yet-created output paths;
+# -ef also catches hard links to an existing input or another output.
+paths_alias() {
+  local a="$1" b="$2"
+  [[ "$(realpath -m -- "$a")" == "$(realpath -m -- "$b")" ]] || \
+    [[ -e "$a" && -e "$b" && "$a" -ef "$b" ]]
+}
+
+# Usage: assert_distinct_io_paths INPUT... -- OUTPUT...
+# All outputs must be different from all inputs AND other outputs. This check
+# is mandatory even with --force; never clobber source data by accident.
+assert_distinct_io_paths() {
+  local -a inputs=() outputs=()
+  local output_phase=0 path input
+  for path in "$@"; do
+    if [[ "$path" == '--' && "$output_phase" -eq 0 ]]; then
+      output_phase=1
+    elif [[ "$output_phase" -eq 0 ]]; then
+      inputs+=("$path")
+    else
+      outputs+=("$path")
+    fi
+  done
+  [[ "$output_phase" -eq 1 ]] || die 'Internal error: missing -- in path validation'
+  for path in "${outputs[@]}"; do
+    [[ ! -L "$path" ]] || die "Refusing to overwrite symlink output: $path"
+    for input in "${inputs[@]}"; do
+      if paths_alias "$path" "$input"; then
+        die "Output path aliases input: $path (input: $input)"
+      fi
+    done
+  done
+  local i j
+  for ((i=0; i<${#outputs[@]}; i++)); do
+    for ((j=i+1; j<${#outputs[@]}; j++)); do
+      if paths_alias "${outputs[$i]}" "${outputs[$j]}"; then
+        die "Output paths alias each other: ${outputs[$i]} and ${outputs[$j]}"
+      fi
+    done
+  done
+}
+
+# Helpers may be invoked directly, not only through guarded prod commands.
+# Completed work must never be reinterpreted by regenerating its plan/IID list.
+assert_run_unpopulated_for_metadata() {
+  local run_dir="$1"
+  [[ ! -e "$run_dir/DONE" ]] || die "Run is DONE; refusing to change scientific metadata: $run_dir"
+  if [[ -d "$run_dir/out" ]] && [[ -n "$(find "$run_dir/out" -mindepth 1 -print -quit)" ]]; then
+    die "Run has job outputs; refusing to change scientific metadata: $run_dir/out"
+  fi
+  if [[ -d "$run_dir/work" ]] && [[ -n "$(find "$run_dir/work" -mindepth 1 -print -quit)" ]]; then
+    die "Run work directory is populated; refusing to change scientific metadata: $run_dir/work"
+  fi
+  [[ ! -e "$run_dir/meta/pairjobs.tsv" ]] || die "Run already has a pairjob plan: $run_dir"
+}
+
+# A failed bcftools command should never remove the preceding valid output.
+# Generate/index/check a temporary BCF in the destination directory, then
+# replace the final BCF and its CSI only after successful validation.
+new_staged_bcf() {
+  local out="$1"
+  mktemp "$(dirname "$out")/.$(basename "$out").tmp.XXXXXXXX.bcf"
+}
+
+publish_staged_bcf() {
+  local staged="$1" out="$2"
+  [[ -s "$staged" && -s "$staged.csi" ]] || die "Staged BCF/index missing: $staged"
+  mv -f -- "$staged" "$out"
+  mv -f -- "$staged.csi" "$out.csi"
+  rm -f -- "$out.tbi"  # stale index from a previous version (if present)
+}

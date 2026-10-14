@@ -24,6 +24,14 @@ trap cleanup EXIT
   echo "RUN_ID=$RUN_ID"
   echo "DATE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "SIF_IMAGE=$SIF_IMAGE"
+  if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "GIT_COMMIT=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+    if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=normal 2>/dev/null || true)" ]]; then
+      echo "GIT_DIRTY=1"
+    else
+      echo "GIT_DIRTY=0"
+    fi
+  fi
   if [[ -f "$SIF_IMAGE" ]]; then
     sha256sum "$SIF_IMAGE" || true
   fi

@@ -6,7 +6,7 @@ The main entry points are:
 
 - `baseline`: run ancIBD chromosome by chromosome, then run `ancIBD-summary`
 - `prod`: submit all-vs-all pairjobs plus one merge job through DAGMan
-- `prod-incremental`: submit only pairjobs with at least one IID from a target set
+- `prod-incremental`: submit only pairs not covered by explicitly supplied previous runs, or use the legacy IID-target mode
 
 Baseline writes both merged outputs:
 
@@ -23,7 +23,7 @@ They write `runs/<RUN_ID>/out/merged/ch_all.tsv` only when `MERGE_CH_ALL="1"` in
 
 ```bash
 cp config/example.env config/local.env
-# edit config/local.env
+# edit config/local.env; absolute paths are recommended for path settings
 ./containers/build.sh
 ```
 
@@ -79,11 +79,15 @@ Validate the expected HDF5s:
 
 ## Run baseline
 
+The commands below are alternatives; create a fresh `RUN_ID` for each run.
+
 ```bash
 RUN_ID="$(./ancibd-pipeline new-run baseline)"; export RUN_ID
 ./ancibd-pipeline baseline 20-20
-./ancibd-pipeline baseline 20-20 --pcol RAF
-./ancibd-pipeline baseline 20-20 --pcol AF_REF
+
+# Alternative examples (each needs a fresh RUN_ID):
+# ./ancibd-pipeline baseline 20-20 --pcol RAF
+# ./ancibd-pipeline baseline 20-20 --pcol AF_REF
 ```
 
 ## Run prod
@@ -94,14 +98,21 @@ Set explicit pairjob resource requests in `config/local.env`:
 - `BP_REQUEST_MEMORY`
 - `BP_REQUEST_DISK`
 
-Then run:
+The commands below are alternatives; create a fresh `RUN_ID` for each run.
 
 ```bash
 RUN_ID="$(./ancibd-pipeline new-run prod)"; export RUN_ID
 ./ancibd-pipeline prod 20-20
-./ancibd-pipeline prod 20-20 --pcol RAF
-./ancibd-pipeline prod 20-20 --pcol AF_REF
+
+# Alternative examples (each needs a fresh RUN_ID):
+# ./ancibd-pipeline prod 20-20 --pcol RAF
+# ./ancibd-pipeline prod 20-20 --pcol AF_REF
 ```
+
+The lower-level `make_pairjobs.sh` and `make_iid_list.sh` helpers also refuse
+to change an existing plan, IID list, or populated/completed run. Do not run
+them again against a completed `RUN_ID`: the stored metadata defines the
+scientific meaning of that round and, for pair-history runs, its exact pairs.
 
 The planner writes:
 
@@ -121,9 +132,9 @@ For the default all-vs-all workflow, job IDs are the coarse batch rectangles:
 
 ### Pair-aware history mode (recommended)
 
-Supply one or more complete previous run directories with repeated `--previous-run` arguments. The planner reconstructs which pairs were already covered by those runs and emits exactly the pairs that are still missing among the current HDF5 IID set. Supply every earlier round whose coverage you want reused; omitting an older round cannot make the new result incomplete, but it can cause pairs known only from that omitted round to be recomputed.
+Supply one or more complete previous run directories with repeated `--previous-run` arguments. Only the runs supplied explicitly are counted as history: the planner does not recursively follow a previous run's own history. It reconstructs the pairs directly covered by those supplied runs and emits exactly the pairs still missing among the current HDF5 IID set. Omitting an older round is therefore safe for completeness, but pairs covered only by that omitted round will be recomputed.
 
-This remains correct when filtering is non-monotonic across rounds: an IID may disappear from one round and later be deliberately reintroduced without causing already-covered pairs to be rerun or previously-unseen pairs to be missed.
+This remains correct when filtering is non-monotonic across rounds: an IID may disappear from one round and later be deliberately reintroduced without causing explicitly covered pairs to be rerun or previously unseen pairs to be missed.
 
 ```bash
 RUN_ID="$(./ancibd-pipeline new-run prod-incremental)"; export RUN_ID
@@ -133,9 +144,11 @@ RUN_ID="$(./ancibd-pipeline new-run prod-incremental)"; export RUN_ID
   --previous-run runs/<ROUND3_RUN_ID>
 ```
 
-Each supplied previous run must have complete per-job `DONE` coverage according to its `meta/pairjobs.tsv`. Full `prod` runs are interpreted as covering every pair among their `meta/iids.txt`; legacy incremental runs are interpreted using their `meta/iids.txt` and `meta/target_iids.txt`. This lets pair-aware planning reuse already-finished runs created by older pipeline versions without enumerating a global historical pair set.
+Each supplied previous run must have complete per-job `DONE` coverage according to its `meta/pairjobs.tsv`. Full `prod` runs are interpreted as directly covering every pair among their `meta/iids.txt`; legacy IID-delta runs are interpreted using `meta/iids.txt` and `meta/target_iids.txt`. A supplied pair-history run contributes only the exact pairs recorded in its own `work/plans/<JOB_ID>.pairs` files; its own `meta/previous_runs.txt` is not followed. Therefore, retain `work/plans/*.pairs` for pair-history runs that may later be reused as `--previous-run`.
 
 The explicit previous-run paths are recorded in `runs/<RUN_ID>/meta/previous_runs.txt`, and `meta/incremental.env` records `INCREMENTAL_MODE=pair-history`.
+
+For all run modes, `meta/options.env` records the resolved `PCOL` and chromosome range (and `BATCH_SIZE` when configured). `manifest.txt` records the container image/hash and, when the repository is a Git working tree, the commit and whether the tree was dirty.
 
 ### IID-delta mode (legacy/backward-compatible)
 

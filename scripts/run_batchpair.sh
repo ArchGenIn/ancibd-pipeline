@@ -6,7 +6,7 @@ load_config
 require_cmd apptainer
 
 JOB_ID="${1:?usage: run_batchpair.sh <JOB_ID> [CH_RANGE]}"
-CH_RANGE_RUN="${2:-${CH_RANGE:-1-22}}"
+CH_RANGE_CLI="${2:-}"
 
 RUN_ID="${RUN_ID:?set RUN_ID env var (use ./ancibd-pipeline new-run <tag>)}"
 RUN_DIR="$RUNS_ROOT/$RUN_ID"
@@ -22,6 +22,7 @@ if [[ -f "$OPTIONS_FILE" ]]; then
 fi
 PCOL="${PCOL:-AF_ALL}"
 PCOL="${PCOL^^}"
+CH_RANGE_RUN="${CH_RANGE_CLI:-${CH_RANGE:-1-22}}"
 
 IID_FILE_HOST="$RUN_DIR/work/plans/${JOB_ID}.iids"
 PAIR_FILE_HOST="$RUN_DIR/work/plans/${JOB_ID}.pairs"
